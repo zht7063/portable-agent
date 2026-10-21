@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>额度购买</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f2ec;
+      --card: #fffdf8;
+      --ink: #1f2328;
+      --muted: #667085;
+      --line: #e4e0d6;
+      --button: #1f2328;
+      --pending: #8a5a00;
+      --pending-bg: #fff4d6;
+      --paid: #17663a;
+      --paid-bg: #e5f6ec;
+      --closed: #667085;
+      --closed-bg: #efeee9;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+    }
+    main {
+      width: min(720px, calc(100% - 32px));
+      margin: 40px auto 64px;
+    }
+    h1 { margin: 0 0 8px; font-size: 32px; letter-spacing: -0.03em; }
+    .lead { margin: 0 0 24px; color: var(--muted); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    label { display: block; margin-bottom: 8px; font-weight: 600; }
+    .row { display: flex; gap: 8px; }
+    input[type="text"] {
+      flex: 1;
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font: inherit;
+      background: white;
+    }
+    button {
+      border: 0;
+      border-radius: 10px;
+      background: var(--button);
+      color: white;
+      font: inherit;
+      padding: 10px 16px;
+      cursor: pointer;
+    }
+    button:hover { background: #000; }
+    .account {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+    }
+    .balance-label { margin: 0; color: var(--muted); }
+    #balance { margin: 0; font-size: 40px; letter-spacing: -0.04em; }
+    .switch { margin-top: 16px; }
+    .package, .order {
+      display: grid;
+      gap: 12px;
+      align-items: center;
+    }
+    .package {
+      grid-template-columns: 1fr auto auto;
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+    }
+    .package:first-of-type { border-top: 0; padding-top: 0; }
+    .package h2, .order strong { margin: 0; font-size: 18px; }
+    .package p, .order p { margin: 2px 0 0; color: var(--muted); }
+    .meta { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+    .meta span { white-space: nowrap; }
+    .price { font-weight: 650; }
+    .order {
+      grid-template-columns: 1fr auto;
+      padding: 12px 0;
+      border-top: 1px solid var(--line);
+    }
+    .order:first-of-type { border-top: 0; padding-top: 0; }
+    .status {
+      justify-self: end;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 14px;
+    }
+    .status.pending { color: var(--pending); background: var(--pending-bg); }
+    .status.paid { color: var(--paid); background: var(--paid-bg); }
+    .status.closed { color: var(--closed); background: var(--closed-bg); }
+    .key {
+      margin-top: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 14px;
+      word-break: break-all;
+      background: #f6f4ee;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .key-label { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+    .messages { list-style: none; padding: 0; margin: 0 0 16px; }
+    .messages li { border-radius: 10px; padding: 10px 12px; }
+    .success { background: var(--paid-bg); color: var(--paid); }
+    .error { background: #fdeceb; color: #9f2d20; }
+    .empty { margin: 0; color: var(--muted); }
+    @media (max-width: 640px) {
+      .package { grid-template-columns: 1fr auto; }
+      .package button { grid-column: 1 / -1; }
+      .order { grid-template-columns: 1fr; }
+      .status { justify-self: start; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>额度购买</h1>
+    <p class="lead">选择套餐后会生成待支付订单。确认收款后，这里会显示 API key。</p>
+
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+          <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if not user_id %}
+      <section class="card">
+        <form method="get" action="{% url 'home' %}">
+          <label for="user-id">用户标识</label>
+          <div class="row">
+            <input id="user-id" name="user_id" type="text" maxlength="64" value="{{ raw_user_id }}" required>
+            <button type="submit">进入</button>
+          </div>
+        </form>
+      </section>
+    {% else %}
+      <section class="card account">
+        <div>
+          <p class="balance-label">{{ user_id }} 的额度余额</p>
+          <p id="balance">{{ balance }}</p>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>套餐</h2>
+        {% for package in packages %}
+          <form class="package" method="post" action="{% url 'place-order' %}">
+            {% csrf_token %}
+            <input type="hidden" name="user_id" value="{{ user_id }}">
+            <input type="hidden" name="package_id" value="{{ package.id }}">
+            <div>
+              <h2>{{ package.name }}</h2>
+              <p>{{ package.credits }} 额度</p>
+            </div>
+            <p class="price">{{ package.price_yuan }} 元</p>
+            <button type="submit">购买</button>
+          </form>
+        {% empty %}
+          <p class="empty">现在没有在售套餐。</p>
+        {% endfor %}
+      </section>
+
+      <section class="card">
+        <h2>订单</h2>
+        {% for order in orders %}
+          <article class="order">
+            <div>
+              <strong>{{ order.package_name }}</strong>
+              <p class="meta">
+                <span>{{ order.order_no }}</span>
+                <span>{{ order.price_yuan }} 元</span>
+                <span>{{ order.credits }} 额度</span>
+                <span>{{ order.created_at }}</span>
+              </p>
+              {% if order.api_key %}
+                <p class="key-label">API key。Codex 的服务器地址填 {{ relay_base_url }}</p>
+                <p class="key">{{ order.api_key }}</p>
+              {% elif order.status == "paid" %}
+                <p class="key-label">已支付，API key 还没发放。{{ order.api_key_error }}</p>
+              {% endif %}
+            </div>
+            <span class="status {{ order.status }}">{{ order.status_label }}</span>
+          </article>
+        {% empty %}
+          <p class="empty">还没有订单。</p>
+        {% endfor %}
+      </section>
+
+      <section class="card switch">
+        <form method="get" action="{% url 'home' %}">
+          <label for="switch-user-id">换一个用户标识</label>
+          <div class="row">
+            <input id="switch-user-id" name="user_id" type="text" maxlength="64" value="{{ user_id }}" required>
+            <button type="submit">切换</button>
+          </div>
+        </form>
+      </section>
+    {% endif %}
+  </main>
+</body>
+</html>
