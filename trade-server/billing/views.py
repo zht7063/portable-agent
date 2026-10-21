@@ -5,7 +5,15 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from .models import Order, Package
-from .services import BillingError, charge, charge_payload, create_order, get_balance
+from .payments import PaymentError, get_provider
+from .services import (
+    BillingError,
+    charge,
+    charge_payload,
+    confirm_payment,
+    create_order,
+    get_balance,
+)
 
 
 def json_ok(data, status=200):
@@ -81,6 +89,29 @@ def charge_create(request):
     except BillingError as exc:
         return json_error(exc.message, exc.status)
     return json_ok(charge_payload(entry, deducted), status=201 if deducted else 200)
+
+
+@csrf_exempt
+@require_POST
+def payment_notify(request, code: str):
+    """微信或支付宝的到账通知。签名由对应的收款方式校验，通过后入账并发 key。"""
+    try:
+        provider = get_provider(code)
+    except PaymentError as exc:
+        return json_error(exc.message, status=404)
+    try:
+        notice = provider.parse_notify(request)
+        confirm_payment(
+            notice.order_no,
+            provider.code,
+            notice.amount_cents,
+            notice.payment_ref,
+        )
+    except PaymentError as exc:
+        return json_error(exc.message)
+    except BillingError as exc:
+        return json_error(exc.message, exc.status)
+    return provider.notify_ack()
 
 
 @require_GET

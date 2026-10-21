@@ -54,7 +54,47 @@ def create_order(user_id, package_id) -> Order:
         price_cents=package.price_cents,
         credits=package.credits,
         status=Order.Status.PENDING,
+        payment_method=settings.PAYMENT_PROVIDER,
     )
+
+
+def claim_payment(order_id: int) -> Order:
+    """用户点了“我已支付”。只做标记，到账与否仍由管理员或到账通知确认。"""
+    Order.objects.filter(
+        pk=order_id,
+        status=Order.Status.PENDING,
+        payer_claimed_at__isnull=True,
+    ).update(payer_claimed_at=timezone.now())
+    try:
+        order = Order.objects.get(pk=order_id)
+    except Order.DoesNotExist as exc:
+        raise BillingError("订单不存在", status=404) from exc
+    if order.status == Order.Status.CLOSED:
+        raise BillingError("订单已取消")
+    return order
+
+
+def confirm_payment(order_no, method: str, amount_cents: int, payment_ref: str) -> Order:
+    """收款渠道通知到账。金额必须和订单一致；同一笔通知重复到达只入账一次。"""
+    try:
+        order = Order.objects.get(order_no=order_no)
+    except Order.DoesNotExist as exc:
+        raise BillingError("订单不存在", status=404) from exc
+    if amount_cents != order.price_cents:
+        raise BillingError("到账金额和订单金额不一致", status=409)
+    if order.status == Order.Status.PAID:
+        if order.payment_ref and order.payment_ref != payment_ref:
+            raise BillingError("订单已由另一笔付款确认", status=409)
+        return order
+    try:
+        with transaction.atomic():
+            Order.objects.filter(pk=order.pk, status=Order.Status.PENDING).update(
+                payment_method=method,
+                payment_ref=payment_ref,
+            )
+    except IntegrityError as exc:
+        raise BillingError("这笔付款已经确认过另一笔订单", status=409) from exc
+    return mark_order_paid(order.pk)
 
 
 def get_account(user_id: str) -> UserAccount:

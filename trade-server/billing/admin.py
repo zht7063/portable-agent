@@ -36,21 +36,38 @@ class OrderAdminForm(forms.ModelForm):
         return cleaned
 
 
+class AwaitingConfirmationFilter(admin.SimpleListFilter):
+    title = "收款确认"
+    parameter_name = "claimed"
+
+    def lookups(self, request, model_admin):
+        return (("yes", "用户已付款，待确认"), ("no", "用户未点已付款"))
+
+    def queryset(self, request, queryset):
+        pending = queryset.filter(status=Order.Status.PENDING)
+        if self.value() == "yes":
+            return pending.filter(payer_claimed_at__isnull=False)
+        if self.value() == "no":
+            return pending.filter(payer_claimed_at__isnull=True)
+        return queryset
+
+
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
     form = OrderAdminForm
     list_display = (
         "order_no",
+        "remark_code_display",
         "user_id",
         "package_name",
         "price_yuan_display",
-        "credits",
         "status",
+        "claimed_display",
         "api_key_ready",
         "created_at",
     )
-    list_filter = ("status", "package")
-    search_fields = ("order_no", "user_id", "package_name", "api_key")
+    list_filter = (AwaitingConfirmationFilter, "status", "package")
+    search_fields = ("order_no", "user_id", "package_name", "api_key", "payment_ref")
     date_hierarchy = "created_at"
     actions = ("confirm_payment", "reissue_api_keys", "close_orders")
 
@@ -68,6 +85,9 @@ class OrderAdmin(admin.ModelAdmin):
             "created_at",
             "paid_at",
             "closed_at",
+            "payment_method",
+            "payer_claimed_at",
+            "payment_ref",
             "api_key",
             "api_key_error",
         ]
@@ -83,6 +103,9 @@ class OrderAdmin(admin.ModelAdmin):
             "created_at",
             "paid_at",
             "closed_at",
+            "payment_method",
+            "payer_claimed_at",
+            "payment_ref",
             "api_key",
             "api_key_error",
         ]
@@ -121,6 +144,14 @@ class OrderAdmin(admin.ModelAdmin):
                     close_order(obj.pk)
         except BillingError as exc:
             self.message_user(request, exc.message, level=messages.ERROR)
+
+    @admin.display(description="付款备注", ordering="order_no")
+    def remark_code_display(self, obj: Order) -> str:
+        return obj.remark_code if obj.order_no else "-"
+
+    @admin.display(description="用户已付款", boolean=True, ordering="payer_claimed_at")
+    def claimed_display(self, obj: Order) -> bool:
+        return obj.payer_claimed_at is not None
 
     @admin.display(description="API key", boolean=True)
     def api_key_ready(self, obj: Order) -> bool:

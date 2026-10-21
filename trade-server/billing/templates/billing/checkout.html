@@ -1,0 +1,283 @@
+{% extends "billing/base.html" %}
+
+{% block title %}支付订单 · 接口额度{% endblock %}
+
+{% block style %}
+    main {
+      width: min(920px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 24px 0 72px;
+    }
+    .back {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 16px;
+      color: var(--muted);
+      text-decoration: none;
+    }
+    .back:hover { color: var(--ink); }
+    .sheet {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(23, 23, 23, 0.06);
+      overflow: hidden;
+    }
+    .summary { padding: 28px; background: #fafafa; border-right: 1px solid var(--line); }
+    .kicker { margin: 0 0 4px; color: var(--muted); font-size: 13px; }
+    .summary h1 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+    .rows { margin: 20px 0 0; padding: 0; }
+    .rows div {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 0;
+      border-top: 1px solid var(--line);
+    }
+    .rows dt { color: var(--muted); }
+    .rows dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; word-break: break-all; }
+    .total {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-top: 8px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line-strong);
+    }
+    .total span { color: var(--muted); }
+    .total strong { font-size: 28px; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+    .pane { padding: 28px; }
+    .pane-head { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+    .pane-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+    .wechat {
+      display: grid;
+      place-items: center;
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: #07c160;
+    }
+    .wechat::after {
+      content: "";
+      width: 9px;
+      height: 5px;
+      border-left: 2px solid white;
+      border-bottom: 2px solid white;
+      transform: translateY(-1px) rotate(-45deg);
+    }
+    .qr {
+      display: block;
+      width: 216px;
+      height: auto;
+      margin: 0 auto;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: white;
+    }
+    .qr-caption { margin: 10px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
+    .pay-steps { margin: 20px 0 0; padding: 0; list-style: none; counter-reset: step; }
+    .pay-steps li {
+      display: grid;
+      grid-template-columns: 20px 1fr auto auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 0;
+      border-top: 1px solid var(--line);
+      counter-increment: step;
+    }
+    .pay-steps li::before {
+      content: counter(step);
+      display: grid;
+      place-items: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #f1f1f1;
+      color: var(--muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .pay-steps strong { font-variant-numeric: tabular-nums; }
+    .pay-steps .wide { grid-column: 2 / -1; }
+    .actions { display: grid; gap: 8px; margin-top: 20px; }
+    .actions button { width: 100%; height: 40px; }
+    .ghost { background: white; color: var(--muted); }
+    .ghost:hover { background: #f3f3f3; color: var(--ink); }
+    .fine { margin: 12px 0 0; color: var(--faint); font-size: 12px; text-align: center; }
+    .state { text-align: center; padding: 12px 0 4px; }
+    .state h2 { margin: 16px 0 6px; font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+    .state p { margin: 0 auto; max-width: 320px; color: var(--muted); }
+    .badge {
+      display: grid;
+      place-items: center;
+      width: 52px;
+      height: 52px;
+      margin: 0 auto;
+      border-radius: 50%;
+    }
+    .badge.ok { background: var(--paid-bg); }
+    .badge.ok::after {
+      content: "";
+      width: 18px;
+      height: 10px;
+      border-left: 3px solid var(--paid);
+      border-bottom: 3px solid var(--paid);
+      transform: translateY(-3px) rotate(-45deg);
+    }
+    .badge.wait { border: 3px solid #ececec; border-top-color: var(--ink); animation: spin 0.9s linear infinite; width: 44px; height: 44px; }
+    .badge.off { background: var(--closed-bg); }
+    .badge.off::after { content: ""; width: 18px; height: 3px; border-radius: 2px; background: var(--closed); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .credential { display: grid; gap: 10px; margin-top: 24px; text-align: left; }
+    .state .warn { margin-top: 20px; text-align: left; }
+    .link-button {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 40px;
+      margin-top: 20px;
+      border-radius: 8px;
+      background: var(--ink);
+      color: white;
+      text-decoration: none;
+    }
+    .link-button.quiet { background: white; color: var(--ink); border: 1px solid var(--line-strong); }
+    details.again { margin-top: 20px; text-align: left; }
+    details.again summary { cursor: pointer; color: var(--muted); text-align: center; }
+    details.again .qr { margin-top: 16px; }
+{% endblock %}
+
+{% block mobile_style %}
+      main { width: min(100% - 32px, 920px); }
+      .sheet { grid-template-columns: 1fr; }
+      .summary { border-right: 0; border-bottom: 1px solid var(--line); padding: 20px; }
+      .pane { padding: 20px; }
+{% endblock %}
+
+{% block top %}
+  {% include "billing/account_menu.html" %}
+{% endblock %}
+
+{% block content %}
+  <main>
+    <a class="back" href="{% url 'home' %}">← 返回控制台</a>
+
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+          <li class="{{ message.tags }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    <div class="sheet">
+      <section class="summary">
+        <p class="kicker">订单</p>
+        <h1>{{ order.package_name }}</h1>
+        <dl class="rows">
+          <div><dt>到账额度</dt><dd>{{ order.credits }} 额度</dd></div>
+          <div><dt>订单号</dt><dd>{{ order.order_no }}</dd></div>
+          <div><dt>下单时间</dt><dd>{{ order.created_at }}</dd></div>
+          <div><dt>状态</dt><dd><span class="status {{ order.status }}">{{ order.status_label }}</span></dd></div>
+        </dl>
+        <div class="total">
+          <span>应付金额</span>
+          <strong>¥{{ order.price_yuan }}</strong>
+        </div>
+      </section>
+
+      <section class="pane">
+        {% if order.status == "paid" %}
+          <div class="state">
+            <div class="badge ok" aria-hidden="true"></div>
+            <h2>支付成功</h2>
+            <p>{{ order.credits }} 额度已到账。</p>
+            {% if order.api_key %}
+              {% include "billing/credential.html" %}
+            {% else %}
+              <p class="warn">API key 还没发放。{{ order.api_key_error }}</p>
+            {% endif %}
+            <a class="link-button" href="{% url 'home' %}">返回控制台</a>
+          </div>
+        {% elif order.status == "closed" %}
+          <div class="state">
+            <div class="badge off" aria-hidden="true"></div>
+            <h2>订单已取消</h2>
+            <p>这笔订单不会再收款。如需购买，请重新选择套餐。</p>
+            <a class="link-button" href="{% url 'home' %}#plans">重新选择套餐</a>
+          </div>
+        {% elif checkout_error %}
+          <p class="warn">{{ checkout_error }}</p>
+        {% elif order.claimed %}
+          <div class="state" data-poll="{% url 'order-status' order.order_no %}" data-claimed="1">
+            <div class="badge wait" aria-hidden="true"></div>
+            <h2>正在确认收款</h2>
+            <p>核对到账后会自动发放 API key，这个页面会自动更新。</p>
+            <dl class="rows">
+              <div><dt>付款金额</dt><dd>¥{{ order.price_yuan }}</dd></div>
+              <div><dt>付款备注</dt><dd>{{ order.remark_code }}</dd></div>
+            </dl>
+            <details class="again">
+              <summary>还没付款？重新显示收款码</summary>
+              <img class="qr" src="{{ checkout.qr_image_url }}" alt="微信收款码">
+            </details>
+          </div>
+        {% else %}
+          <div data-poll="{% url 'order-status' order.order_no %}" data-claimed="0">
+            <div class="pane-head">
+              <span class="wechat" aria-hidden="true"></span>
+              <h2>微信扫码支付</h2>
+            </div>
+            <img class="qr" src="{{ checkout.qr_image_url }}" alt="微信收款码">
+            <p class="qr-caption">请使用微信扫一扫</p>
+            <ol class="pay-steps">
+              <li><span>输入金额</span><strong>¥{{ order.price_yuan }}</strong><button class="copy" type="button" data-copy="{{ order.price_yuan }}">复制</button></li>
+              <li><span>付款备注</span><strong>{{ order.remark_code }}</strong><button class="copy" type="button" data-copy="{{ order.remark_code }}">复制</button></li>
+              <li><span class="wide">完成付款后点击下方按钮</span></li>
+            </ol>
+            {% if checkout.needs_buyer_claim %}
+              <div class="actions">
+                <form method="post" action="{% url 'claim-payment' order.order_no %}">
+                  {% csrf_token %}
+                  <button type="submit">我已完成支付</button>
+                </form>
+                <form method="post" action="{% url 'cancel-order' order.order_no %}">
+                  {% csrf_token %}
+                  <button class="ghost" type="submit">取消订单</button>
+                </form>
+              </div>
+              <p class="fine">金额和备注不一致时，确认会变慢。</p>
+            {% endif %}
+          </div>
+        {% endif %}
+      </section>
+    </div>
+  </main>
+{% endblock %}
+
+{% block script %}
+  <script>
+    const poll = document.querySelector("[data-poll]");
+    if (poll) {
+      const claimed = poll.getAttribute("data-claimed") === "1";
+      const check = async () => {
+        try {
+          const response = await fetch(poll.getAttribute("data-poll"), { cache: "no-store" });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.status !== "pending" || data.claimed !== claimed) {
+              window.location.reload();
+              return;
+            }
+          }
+        } catch (error) {}
+        window.setTimeout(check, 3000);
+      };
+      window.setTimeout(check, 3000);
+    }
+  </script>
+{% endblock %}

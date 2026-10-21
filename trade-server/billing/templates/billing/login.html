@@ -1,0 +1,19 @@
+{% extends "billing/auth_base.html" %}
+
+{% block title %}登录 · 接口额度{% endblock %}
+
+{% block top %}
+  <a class="top-link" href="{% url 'register' %}">创建账号</a>
+{% endblock %}
+
+{% block card %}
+  <h1>登录</h1>
+  <p class="lead">登录后查看额度、订单和 API key。</p>
+  <form method="post" action="{% url 'login' %}" novalidate>
+    {% csrf_token %}
+    {% include "billing/form_fields.html" %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit">登录</button>
+  </form>
+  <p class="switch">还没有账号？<a href="{% url 'register' %}">创建账号</a></p>
+{% endblock %}

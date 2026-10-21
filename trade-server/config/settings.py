@@ -142,6 +142,10 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "home"
+LOGOUT_REDIRECT_URL = "login"
+
 # 确认收款后向这台 New API 发放 sk- key。地址为空时只入账，不发 key。
 NEWAPI_BASE_URL = os.environ.get("NEWAPI_BASE_URL", "").rstrip("/")
 NEWAPI_ADMIN_USERNAME = os.environ.get("NEWAPI_ADMIN_USERNAME", "")
@@ -153,3 +157,9 @@ NEWAPI_PUBLIC_BASE_URL = os.environ.get(
 ).rstrip("/")
 # New API 默认 500000 额度显示为 1 美元。100 购买额度因此等于 1 美元用量。
 NEWAPI_QUOTA_PER_CREDIT = int(os.environ.get("NEWAPI_QUOTA_PER_CREDIT", "5000"))
+
+# 收款方式，见 billing/payments.py。个人收款码图片不进仓库。
+PAYMENT_PROVIDER = os.environ.get("PAYMENT_PROVIDER", "manual_qr")
+PAYMENT_QR_IMAGE = BASE_DIR / os.environ.get(
+    "PAYMENT_QR_IMAGE", "private/wechat-pay-qr.jpg"
+)

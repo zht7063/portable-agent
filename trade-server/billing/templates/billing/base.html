@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}接口额度{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23171717'/%3E%3Crect x='9' y='7' width='14' height='18' rx='3' fill='white'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --ink: #171717;
+      --muted: #6b6b6b;
+      --faint: #8a8a8a;
+      --line: #e6e6e6;
+      --line-strong: #d4d4d4;
+      --pending: #9a6700;
+      --pending-bg: #fff8e6;
+      --paid: #17663a;
+      --paid-bg: #e8f6ee;
+      --closed: #5c5c5c;
+      --closed-bg: #f1f1f1;
+      --danger: #b42318;
+      --danger-bg: #fdeceb;
+      --shadow: 0 1px 2px rgba(23, 23, 23, 0.04);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+    }
+    button, input { font: inherit; color: inherit; }
+    a { color: inherit; }
+    .top {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      height: 56px;
+      padding: 0 24px;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: inherit;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      text-decoration: none;
+    }
+    .mark {
+      position: relative;
+      flex: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      background: var(--ink);
+    }
+    .mark::after {
+      content: "";
+      position: absolute;
+      left: 6px;
+      top: 5px;
+      width: 10px;
+      height: 12px;
+      border-radius: 2px;
+      background: white;
+    }
+    .nav { display: flex; gap: 18px; }
+    .nav a { color: var(--muted); text-decoration: none; }
+    .nav a:hover { color: var(--ink); }
+    .top-link { margin-left: auto; color: var(--muted); text-decoration: none; }
+    .top-link:hover { color: var(--ink); }
+    .who { margin-left: auto; position: relative; }
+    .who summary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      list-style: none;
+      cursor: pointer;
+      padding: 3px 10px 3px 3px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: white;
+    }
+    .who summary::-webkit-details-marker { display: none; }
+    .avatar {
+      display: grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--ink);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .menu {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 8px);
+      width: 240px;
+      padding: 6px;
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      box-shadow: 0 12px 32px rgba(23, 23, 23, 0.08);
+    }
+    .menu-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+    .menu-head p { margin: 0; }
+    .menu-head .faint { color: var(--muted); font-size: 12px; }
+    .menu button {
+      width: 100%;
+      justify-content: flex-start;
+      background: transparent;
+      color: var(--ink);
+      text-align: left;
+    }
+    .menu button:hover { background: #f3f3f3; }
+    button {
+      height: 36px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--ink);
+      color: white;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:hover { background: #000; }
+    button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+    input:not([type="hidden"]) {
+      width: 100%;
+      min-width: 0;
+      height: 40px;
+      padding: 0 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: white;
+    }
+    input:not([type="hidden"]):focus {
+      outline: 2px solid var(--ink);
+      outline-offset: 1px;
+      border-color: var(--ink);
+    }
+    .messages { list-style: none; padding: 0; margin: 0 0 16px; }
+    .messages li { border-radius: 8px; padding: 10px 12px; border: 1px solid transparent; }
+    .success { background: var(--paid-bg); color: var(--paid); border-color: #cfe8d8; }
+    .error { background: var(--danger-bg); color: var(--danger); border-color: #f4cdc8; }
+    .status { flex: none; border-radius: 999px; padding: 2px 8px; font-size: 12px; line-height: 18px; }
+    .status.pending { color: var(--pending); background: var(--pending-bg); }
+    .status.paid { color: var(--paid); background: var(--paid-bg); }
+    .status.closed { color: var(--closed); background: var(--closed-bg); }
+    .secret {
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fafafa;
+    }
+    .secret-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .copy {
+      height: 26px;
+      padding: 0 8px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: white;
+      color: var(--ink);
+      font-size: 12px;
+    }
+    .copy:hover { background: #f3f3f3; }
+    code {
+      display: block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      word-break: break-all;
+    }
+    .hint, .warn { margin: 0; font-size: 13px; }
+    .hint { color: var(--muted); }
+    .warn {
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: var(--pending-bg);
+      color: var(--pending);
+    }
+    {% block style %}{% endblock %}
+    @media (max-width: 800px) {
+      .top { gap: 16px; padding: 0 16px; }
+      .nav { display: none; }
+      {% block mobile_style %}{% endblock %}
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="{% url 'home' %}">
+      <span class="mark" aria-hidden="true"></span>
+      接口额度
+    </a>
+    {% block top %}{% endblock %}
+  </header>
+  {% block content %}{% endblock %}
+  <script>
+    document.querySelectorAll("[data-copy]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const value = button.getAttribute("data-copy") || "";
+        try {
+          await navigator.clipboard.writeText(value);
+        } catch (error) {
+          const field = document.createElement("textarea");
+          field.value = value;
+          document.body.appendChild(field);
+          field.select();
+          document.execCommand("copy");
+          field.remove();
+        }
+        const previous = button.textContent;
+        button.textContent = "已复制";
+        window.setTimeout(() => {
+          button.textContent = previous;
+        }, 1200);
+      });
+    });
+  </script>
+  {% block script %}{% endblock %}
+</body>
+</html>

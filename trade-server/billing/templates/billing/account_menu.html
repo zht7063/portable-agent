@@ -1,0 +1,13 @@
+<details class="who">
+  <summary><span class="avatar" aria-hidden="true">{{ user_id|slice:":1" }}</span>{{ user_id }}</summary>
+  <div class="menu">
+    <div class="menu-head">
+      <p class="faint">当前账号</p>
+      <p>{{ user_id }}</p>
+    </div>
+    <form method="post" action="{% url 'logout' %}">
+      {% csrf_token %}
+      <button type="submit">退出登录</button>
+    </form>
+  </div>
+</details>

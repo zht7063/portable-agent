@@ -1,4 +1,6 @@
 import json
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -6,6 +8,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from billing.models import LedgerEntry, Order, Package, UserAccount
+from billing.payments import PROVIDERS, Checkout, PaymentNotice, PaymentProvider
 from billing.services import (
     BillingError,
     charge,
@@ -392,15 +395,86 @@ class ChargeTests(TestCase):
         self.assertEqual(broke.json()["error"], "额度不足")
 
 
-class UserPageTests(TestCase):
-    def test_home_asks_for_user_id(self):
+PASSWORD = "Shop-Pass-2026"
+
+
+class AccountTests(TestCase):
+    def test_home_requires_login(self):
         response = self.client.get(reverse("home"))
-        self.assertContains(response, "用户标识")
-        self.assertNotContains(response, "入门包")
+        self.assertRedirects(response, f"{reverse('login')}?next=/")
+
+    def test_order_requires_login(self):
+        starter = Package.objects.get(name="入门包")
+        response = self.client.post(reverse("place-order"), {"package_id": starter.id})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response["Location"].startswith(reverse("login")))
+        self.assertFalse(Order.objects.exists())
+
+    def test_register_logs_in(self):
+        response = self.client.post(
+            reverse("register"),
+            {"username": "new-buyer", "password1": PASSWORD, "password2": PASSWORD},
+            follow=True,
+        )
+        self.assertRedirects(response, reverse("home"))
+        self.assertContains(response, "new-buyer")
+        self.assertContains(response, 'id="balance">0<')
+        user = get_user_model().objects.get(username="new-buyer")
+        self.assertNotEqual(user.password, PASSWORD)
+        self.assertTrue(user.check_password(PASSWORD))
+
+    def test_register_rejects_mismatched_and_long_names(self):
+        mismatch = self.client.post(
+            reverse("register"),
+            {"username": "buyer", "password1": PASSWORD, "password2": PASSWORD + "x"},
+        )
+        self.assertEqual(mismatch.status_code, 200)
+        self.assertContains(mismatch, "field-error")
+        too_long = self.client.post(
+            reverse("register"),
+            {"username": "x" * 65, "password1": PASSWORD, "password2": PASSWORD},
+        )
+        self.assertContains(too_long, "用户名不能超过 64 个字符")
+        self.assertFalse(get_user_model().objects.exists())
+
+    def test_register_rejects_taken_name(self):
+        get_user_model().objects.create_user("buyer", password=PASSWORD)
+        response = self.client.post(
+            reverse("register"),
+            {"username": "Buyer", "password1": PASSWORD, "password2": PASSWORD},
+        )
+        self.assertContains(response, "field-error")
+        self.assertEqual(get_user_model().objects.count(), 1)
+
+    def test_login_and_logout(self):
+        get_user_model().objects.create_user("buyer", password=PASSWORD)
+        wrong = self.client.post(
+            reverse("login"), {"username": "buyer", "password": "nope"}
+        )
+        self.assertContains(wrong, "用户名或密码不正确")
+
+        ok = self.client.post(
+            reverse("login"), {"username": "buyer", "password": PASSWORD}, follow=True
+        )
+        self.assertRedirects(ok, reverse("home"))
+        self.assertContains(ok, "退出登录")
+        self.assertRedirects(self.client.get(reverse("login")), reverse("home"))
+
+        out = self.client.post(reverse("logout"), follow=True)
+        self.assertRedirects(out, reverse("login"))
+        self.assertRedirects(
+            self.client.get(reverse("home")), f"{reverse('login')}?next=/"
+        )
+
+
+class UserPageTests(TestCase):
+    def setUp(self):
+        get_user_model().objects.create_user("page-user", password=PASSWORD)
+        self.client.login(username="page-user", password=PASSWORD)
 
     def test_user_can_place_order_and_see_balance_after_payment(self):
         starter = Package.objects.get(name="入门包")
-        entered = self.client.get(reverse("home"), {"user_id": "page-user"})
+        entered = self.client.get(reverse("home"))
         self.assertContains(entered, "入门包")
         self.assertContains(entered, "10.00 元")
         self.assertContains(entered, "600 额度")
@@ -409,35 +483,41 @@ class UserPageTests(TestCase):
 
         pending = self.client.post(
             reverse("place-order"),
-            {"user_id": "page-user", "package_id": starter.id},
+            {"user_id": "someone-else", "package_id": starter.id},
             follow=True,
         )
-        self.assertRedirects(pending, "/?user_id=page-user")
-        self.assertContains(pending, "待支付")
-        self.assertContains(pending, "等待确认收款后发放 API key")
-        self.assertContains(pending, 'id="balance">0<')
+        order = Order.objects.get()
+        self.assertRedirects(pending, reverse("checkout", args=[order.order_no]))
+        self.assertContains(pending, "微信扫码支付")
+        home = self.client.get(reverse("home"))
+        self.assertContains(home, "待支付")
+        self.assertContains(home, "去支付")
+        self.assertContains(home, 'id="balance">0<')
 
-        order = Order.objects.get(user_id="page-user")
+        self.assertEqual(order.user_id, "page-user")
         self.assertEqual(order.status, Order.Status.PENDING)
         self.assertEqual(order.credits, 100)
         mark_order_paid(order.pk)
 
-        paid = self.client.get(reverse("home"), {"user_id": "page-user"})
+        paid = self.client.get(reverse("home"))
         self.assertContains(paid, "已支付")
         self.assertContains(paid, 'id="balance">100<')
         self.assertContains(paid, "未配置 New API，暂时不能发放 key")
 
+    def test_query_user_id_cannot_show_other_accounts(self):
+        starter = Package.objects.get(name="入门包")
+        other = create_order("other-user", starter.id)
+        other.api_key = "sk-other-key"
+        other.save(update_fields=["api_key"])
+        response = self.client.get(reverse("home"), {"user_id": "other-user"})
+        self.assertContains(response, "page-user")
+        self.assertNotContains(response, "sk-other-key")
+        self.assertNotContains(response, other.order_no)
+
     @override_settings(NEWAPI_BASE_URL="http://new-api.test")
     def test_paid_order_shows_issued_api_key(self):
         starter = Package.objects.get(name="入门包")
-        order = Order.objects.create(
-            user_id="key-user",
-            package=starter,
-            package_name=starter.name,
-            price_cents=starter.price_cents,
-            credits=starter.credits,
-        )
-
+        order = create_order("page-user", starter.id)
         calls = []
 
         def fake_issue(paid):
@@ -449,10 +529,10 @@ class UserPageTests(TestCase):
         with patch("billing.services.issue_key", fake_issue):
             mark_order_paid(order.pk)
 
-        page = self.client.get(reverse("home"), {"user_id": "key-user"})
+        page = self.client.get(reverse("home"))
         self.assertContains(page, "sk-test-key")
         self.assertContains(page, "http://127.0.0.1:3000/v1")
-        self.assertEqual(get_balance("key-user"), 100)
+        self.assertEqual(get_balance("page-user"), 100)
 
         with patch("billing.services.issue_key", fake_issue):
             mark_order_paid(order.pk)
@@ -462,11 +542,175 @@ class UserPageTests(TestCase):
         starter = Package.objects.get(name="入门包")
         starter.is_active = False
         starter.save(update_fields=["is_active"])
-        response = self.client.get(reverse("home"), {"user_id": "page-user"})
+        response = self.client.get(reverse("home"))
         self.assertNotContains(response, "入门包")
         self.assertContains(response, "标准包")
 
-    def test_long_user_id_is_rejected(self):
-        response = self.client.get(reverse("home"), {"user_id": "x" * 65})
-        self.assertContains(response, "user_id 不能超过 64 个字符")
-        self.assertNotContains(response, "id=\"balance\"")
+
+class FakeMerchantProvider(PaymentProvider):
+    code = "fake_merchant"
+    label = "测试商户"
+
+    def checkout(self, order):
+        return Checkout(qr_image_url="/fake-qr.png", needs_buyer_claim=False)
+
+    def parse_notify(self, request):
+        data = json.loads(request.body)
+        return PaymentNotice(
+            order_no=data["order_no"],
+            amount_cents=data["amount_cents"],
+            payment_ref=data["payment_ref"],
+        )
+
+
+class CheckoutTests(TestCase):
+    def setUp(self):
+        users = get_user_model().objects
+        users.create_user("buyer", password=PASSWORD)
+        users.create_user("other", password=PASSWORD)
+        self.client.login(username="buyer", password=PASSWORD)
+        self.starter = Package.objects.get(name="入门包")
+
+    def place(self):
+        self.client.post(reverse("place-order"), {"package_id": self.starter.id})
+        return Order.objects.latest("id")
+
+    def test_new_order_uses_manual_qr(self):
+        order = self.place()
+        self.assertEqual(order.payment_method, "manual_qr")
+        page = self.client.get(reverse("checkout", args=[order.order_no]))
+        self.assertContains(page, reverse("payment-qr"))
+        self.assertContains(page, "¥10.00")
+        self.assertContains(page, order.remark_code)
+        self.assertContains(page, "我已完成支付")
+
+    def test_claim_then_admin_confirm_shows_success(self):
+        order = self.place()
+        status_url = reverse("order-status", args=[order.order_no])
+        self.assertEqual(
+            self.client.get(status_url).json(), {"status": "pending", "claimed": False}
+        )
+
+        claimed = self.client.post(
+            reverse("claim-payment", args=[order.order_no]), follow=True
+        )
+        self.assertContains(claimed, "正在确认收款")
+        self.assertContains(claimed, "待确认")
+        self.assertEqual(
+            self.client.get(status_url).json(), {"status": "pending", "claimed": True}
+        )
+        order.refresh_from_db()
+        first_claim = order.payer_claimed_at
+        self.assertIsNotNone(first_claim)
+        self.assertEqual(get_balance("buyer"), 0)
+
+        self.client.post(reverse("claim-payment", args=[order.order_no]))
+        order.refresh_from_db()
+        self.assertEqual(order.payer_claimed_at, first_claim)
+
+        mark_order_paid(order.pk)
+        self.assertEqual(self.client.get(status_url).json()["status"], "paid")
+        done = self.client.get(reverse("checkout", args=[order.order_no]))
+        self.assertContains(done, "支付成功")
+        self.assertContains(done, "100 额度已到账")
+        self.assertEqual(get_balance("buyer"), 100)
+
+    def test_cancel_order(self):
+        order = self.place()
+        cancelled = self.client.post(
+            reverse("cancel-order", args=[order.order_no]), follow=True
+        )
+        self.assertContains(cancelled, "订单已取消")
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.CLOSED)
+        claim = self.client.post(
+            reverse("claim-payment", args=[order.order_no]), follow=True
+        )
+        self.assertContains(claim, "订单已取消")
+        order.refresh_from_db()
+        self.assertIsNone(order.payer_claimed_at)
+
+    def test_other_user_cannot_touch_order(self):
+        order = self.place()
+        self.client.logout()
+        self.client.login(username="other", password=PASSWORD)
+        for name in ("checkout", "order-status"):
+            self.assertEqual(
+                self.client.get(reverse(name, args=[order.order_no])).status_code, 404
+            )
+        for name in ("claim-payment", "cancel-order"):
+            self.assertEqual(
+                self.client.post(reverse(name, args=[order.order_no])).status_code, 404
+            )
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.PENDING)
+        self.assertIsNone(order.payer_claimed_at)
+
+    def test_payment_qr_needs_login_and_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            image = Path(folder) / "qr.jpg"
+            image.write_bytes(b"\xff\xd8fake")
+            with override_settings(PAYMENT_QR_IMAGE=image):
+                served = self.client.get(reverse("payment-qr"))
+                self.assertEqual(served.status_code, 200)
+                self.assertEqual(b"".join(served.streaming_content), b"\xff\xd8fake")
+                self.client.logout()
+                self.assertEqual(self.client.get(reverse("payment-qr")).status_code, 302)
+            self.client.login(username="buyer", password=PASSWORD)
+            with override_settings(PAYMENT_QR_IMAGE=Path(folder) / "missing.jpg"):
+                self.assertEqual(self.client.get(reverse("payment-qr")).status_code, 404)
+
+
+@patch.dict(PROVIDERS, {FakeMerchantProvider.code: FakeMerchantProvider()})
+class PaymentNotifyTests(TestCase):
+    def setUp(self):
+        self.order = create_order("buyer", Package.objects.get(name="入门包").id)
+
+    def notify(self, code="fake_merchant", **overrides):
+        body = {
+            "order_no": self.order.order_no,
+            "amount_cents": self.order.price_cents,
+            "payment_ref": "wx-001",
+        }
+        body.update(overrides)
+        return self.client.post(
+            reverse("billing:payment-notify", args=[code]),
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+
+    def test_manual_qr_and_unknown_provider_have_no_notify(self):
+        self.assertEqual(self.notify("manual_qr").status_code, 400)
+        self.assertEqual(self.notify("nope").status_code, 404)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.PENDING)
+
+    def test_wrong_amount_is_rejected(self):
+        response = self.notify(amount_cents=1)
+        self.assertEqual(response.status_code, 409)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.PENDING)
+        self.assertEqual(get_balance("buyer"), 0)
+
+    def test_notify_pays_once(self):
+        first = self.notify()
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.content, b"success")
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.PAID)
+        self.assertEqual(self.order.payment_method, "fake_merchant")
+        self.assertEqual(self.order.payment_ref, "wx-001")
+
+        self.assertEqual(self.notify().status_code, 200)
+        self.assertEqual(get_balance("buyer"), 100)
+        self.assertEqual(LedgerEntry.objects.filter(order=self.order).count(), 1)
+        self.assertEqual(self.notify(payment_ref="wx-002").status_code, 409)
+
+    def test_payment_ref_cannot_pay_two_orders(self):
+        self.assertEqual(self.notify().status_code, 200)
+        second = create_order("buyer", Package.objects.get(name="入门包").id)
+        response = self.notify(order_no=second.order_no)
+        self.assertEqual(response.status_code, 409)
+        second.refresh_from_db()
+        self.assertEqual(second.status, Order.Status.PENDING)
+        self.assertEqual(get_balance("buyer"), 100)

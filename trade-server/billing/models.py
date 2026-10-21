@@ -87,6 +87,14 @@ class Order(models.Model):
     created_at = models.DateTimeField("创建时间", auto_now_add=True)
     paid_at = models.DateTimeField("支付时间", null=True, blank=True)
     closed_at = models.DateTimeField("关闭时间", null=True, blank=True)
+    payment_method = models.CharField("收款方式", max_length=32, blank=True)
+    payer_claimed_at = models.DateTimeField("用户标记已付款", null=True, blank=True)
+    payment_ref = models.CharField(
+        "支付流水号",
+        max_length=64,
+        blank=True,
+        help_text="商户收款时由微信或支付宝返回。个人收款码人工确认时为空。",
+    )
     newapi_username = models.CharField("New API 用户名", max_length=20, blank=True)
     newapi_password = models.CharField("New API 密码", max_length=128, blank=True)
     newapi_user_id = models.PositiveIntegerField("New API 用户编号", null=True, blank=True)
@@ -101,9 +109,25 @@ class Order(models.Model):
         indexes = [
             models.Index(fields=["user_id", "status"]),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["payment_method", "payment_ref"],
+                condition=~models.Q(payment_ref=""),
+                name="billing_order_unique_payment_ref",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.order_no} {self.user_id} {self.get_status_display()}"
+
+    @property
+    def remark_code(self) -> str:
+        """付款备注码，方便人工对账时找到订单。"""
+        return self.order_no[-6:].upper()
+
+    @property
+    def awaiting_confirmation(self) -> bool:
+        return self.status == self.Status.PENDING and self.payer_claimed_at is not None
 
     def save(self, *args, **kwargs):
         if not self.order_no:
@@ -128,6 +152,8 @@ class Order(models.Model):
             "created_at": _local_iso(self.created_at),
             "paid_at": _local_iso(self.paid_at),
             "closed_at": _local_iso(self.closed_at),
+            "payment_method": self.payment_method,
+            "payer_claimed_at": _local_iso(self.payer_claimed_at),
             "api_key": self.api_key,
             "api_key_error": self.api_key_error,
         }
