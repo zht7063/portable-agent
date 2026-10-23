@@ -1,7 +1,7 @@
 /**
  * Codex adapter, H3 (direct to <serverUrl>/v1, wire_api "responses").
  * Field names verified against openai/codex source (codex-rs model-provider-info + protocol config_types, 2026-10):
- *   model, model_provider                      top-level (only when codex.setDefault !== false)
+ *   model, model_provider                      top-level (only when codex.setDefault === true (opt-in))
  *   [model_providers.<id>] name, base_url, wire_api = "responses"
  *   [model_providers.<id>.auth] command, args  bearer token from a command (timeout_ms 5000 / refresh_interval_ms
  *                                              300000 defaults; cannot be combined with env_key,
@@ -86,7 +86,7 @@ export class CodexAdapter extends JsonHarnessAdapter {
     const table = codexProvider(p, this.o.helperPath);
     validateCodexProvider(table);
     const d: Desired = new Map();
-    if (p.codex?.setDefault !== false) { d.set('model', codexModel(p)); d.set('model_provider', pid); }
+    if (p.codex?.setDefault === true) { d.set('model', codexModel(p)); d.set('model_provider', pid); }
     d.set(`model_providers.${pid}`, table);
     return new Map([[this.configPath, d]]);
   }
@@ -105,7 +105,7 @@ export class CodexAdapter extends JsonHarnessAdapter {
     const prof = getPath(root, ['profile']);
     if (typeof prof === 'string') w.push(`config.toml selects profile "${prof}"; its model / model_provider may override ours`);
     if (p.keyMode === 'env' && !this.o.env.env[p.envVar ?? 'PA_API_KEY']) w.push(`Env key mode: export ${p.envVar ?? 'PA_API_KEY'} in the shell that starts codex`);
-    if (p.codex?.setDefault === false) w.push(`Default not changed; run codex -c model_provider=${this.pid(p)} -m ${codexModel(p)}`);
+    if (p.codex?.setDefault !== true) w.push(`Default not changed; run codex -c model_provider=${this.pid(p)} -m ${codexModel(p)}`);
     if (this.o.cwd && (await this.statAny(join(this.o.cwd, '.codex', 'config.toml')))) w.push('Project .codex/config.toml may override these user settings');
     w.push('Requires the server Responses channel (configured on the server, not by this app); check the channel status before use');
     return w;

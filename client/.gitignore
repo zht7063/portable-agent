@@ -5,3 +5,5 @@ out/
 .env.local
 *.log
 .pa-session.json
+stage/
+release/

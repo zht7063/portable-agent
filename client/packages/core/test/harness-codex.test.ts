@@ -44,7 +44,7 @@ describe('codex adapter: plan/apply/rollback', () => {
     const user = '# keep me\nmodel = "gpt-5"\nmodel_reasoning_effort = "high"\n\n[mcp_servers.x]\ncommand = "npx"\n';
     await writeFile(s.config, user);
     await writeFile(s.auth, JSON.stringify({ OPENAI_API_KEY: SECRET }));
-    await s.h.upsertProfile(profile());
+    await s.h.upsertProfile(profile({ codex: { setDefault: true } }));
     const plan = await s.h.plan('codex', 'default');
     expect(plan.conflicts).toEqual([]);
     expect(findCredentialLeaks(plan)).toEqual([]);
@@ -83,9 +83,9 @@ describe('codex adapter: plan/apply/rollback', () => {
     expect(await readFile(s.config, 'utf8')).toContain('name = "theirs"');
   });
 
-  it('env mode writes env_key; setDefault=false leaves model/model_provider alone; ~/.codex without CODEX_HOME', async () => {
+  it('env mode writes env_key; default (setDefault unset) leaves model/model_provider alone; ~/.codex without CODEX_HOME', async () => {
     const s = await setup({ codexHome: false });
-    await s.h.upsertProfile(profile({ keyMode: 'env', codex: { setDefault: false } }));
+    await s.h.upsertProfile(profile({ keyMode: 'env'}));
     const plan = await s.h.plan('codex', 'default');
     expect(plan.warnings.join()).toMatch(/export PA_API_KEY/);
     expect(plan.warnings.join()).toMatch(/model_provider=pa/);

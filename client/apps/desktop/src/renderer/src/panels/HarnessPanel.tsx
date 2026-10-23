@@ -33,6 +33,7 @@ export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: num
   const [note, setNote] = useState<string | null>(null);
   const [channel, setChannel] = useState<HarnessChannelStatus>({ state: 'not-checked', checkedAt: '' });
   const isCodex = harness === 'codex';
+  const [cxDefault, setCxDefault] = useState(false);
 
   const run = async (fn: () => Promise<unknown>) => { setMsg(null); setNote(null); try { await fn(); } catch (e) { setMsg(errText(e)); } };
   const loadData = async () => {
@@ -42,7 +43,7 @@ export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: num
     setKr(k);
     if (!k.available) setMode('env');
     const p = (await call('harness:profile:list', {})).profiles.find((x) => x.id === 'default');
-    if (p) { setMain(isCodex ? (p.models.codex ?? p.models.main) : p.models.main); setSmall(p.models.small ?? ''); setMode(p.keyMode === 'plaintext' ? 'command' : p.keyMode); }
+    if (p) { setMain(isCodex ? (p.models.codex ?? p.models.main) : p.models.main); setSmall(p.models.small ?? ''); setMode(p.keyMode === 'plaintext' ? 'command' : p.keyMode); setCxDefault(p.codex?.setDefault === true); }
     const m = await call('models:list', {}).catch(() => [] as ModelInfo[]);
     setModels(m);
     if (!p && m[0]) setMain(m[0].id);
@@ -55,6 +56,7 @@ export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: num
     const prev = (await call('harness:profile:list', {})).profiles.find((x) => x.id === 'default');
     // One shared profile: keep the other harness's options, only replace what this card edits.
     const profile: HarnessProfile = { ...(prev ?? {}), id: 'default', serverUrl, keyId, keyMode: mode, models: isCodex ? { ...(prev?.models ?? {}), main: prev?.models.main ?? main, codex: main } : { ...(prev?.models ?? {}), main, ...(small ? { small } : { small: undefined }) } };
+    if (isCodex) profile.codex = { ...(prev?.codex ?? {}), setDefault: cxDefault };
     await call('harness:profile:upsert', profile);
     setAcks({});
     setPlan(await call('harness:plan', { id: harness, profileId: 'default' }));
@@ -96,6 +98,7 @@ export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: num
           <option value="command" disabled={kr?.available === false}>钥匙串（pa-key）</option>
           <option value="env">环境变量 PA_API_KEY</option>
         </select>{' '}
+        {isCodex && <><label><input type="checkbox" aria-label="设为 Codex 默认" checked={cxDefault} onChange={(e) => setCxDefault(e.target.checked)} /> 设为 Codex 默认（改写 model / model_provider）</label>{' '}</>}
         <button disabled={!main} onClick={() => void doPlan()}>预览变更</button>
       </p>
       {plan && (

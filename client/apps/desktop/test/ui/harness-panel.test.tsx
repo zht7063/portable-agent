@@ -112,7 +112,10 @@ describe('HarnessPanel (Codex)', () => {
     expect(await screen.findByText(/Responses 通道未经 live 验证/)).toBeTruthy();
     await userEvent.selectOptions(screen.getByLabelText('主模型'), 'deepseek-v4-pro');
     await userEvent.click(screen.getByText('预览变更'));
-    expect(pa.calls('harness:profile:upsert')[0]).toMatchObject({ models: { main: 'deepseek-flash', small: 'x', codex: 'deepseek-v4-pro' } });
+    expect(pa.calls('harness:profile:upsert')[0]).toMatchObject({ models: { main: 'deepseek-flash', small: 'x', codex: 'deepseek-v4-pro' }, codex: { setDefault: false } });
+    await userEvent.click(screen.getByLabelText('设为 Codex 默认'));
+    await userEvent.click(screen.getByText('预览变更'));
+    expect(pa.calls('harness:profile:upsert')[1]).toMatchObject({ codex: { setDefault: true } });
     await waitFor(() => expect(pa.calls('harness:plan')[0]).toEqual({ id: 'codex', profileId: 'default' }));
   });
 });

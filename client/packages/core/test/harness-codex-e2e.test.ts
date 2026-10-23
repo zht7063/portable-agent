@@ -64,7 +64,7 @@ describe.skipIf(!run)('codex e2e (offline)', () => {
       const state = new StateStore(fs);
       const env = { home, env: { CODEX_HOME: cx }, platform: process.platform };
       const h = createHarness({ fs, state, env, exec: nodeExec, adapters: { codex: new CodexAdapter({ fs, state, env, exec: nodeExec, helperPath: helper }) } });
-      await h.upsertProfile({ id: 'default', serverUrl: `http://127.0.0.1:${port}`, keyId: 1, keyMode: 'command', models: { main: 'deepseek-v4-pro' } });
+      await h.upsertProfile({ id: 'default', serverUrl: `http://127.0.0.1:${port}`, keyId: 1, keyMode: 'command', models: { main: 'deepseek-v4-pro' }, codex: { setDefault: true } });
       await h.apply('codex', await h.plan('codex', 'default'));
       const runEnv = { HOME: home, CODEX_HOME: cx };
       const args = ['exec', '--skip-git-repo-check', 'ping'];
@@ -76,7 +76,7 @@ describe.skipIf(!run)('codex e2e (offline)', () => {
       expect(posts.every((s) => s.prev === undefined)).toBe(true);
       expect(seen.every((s) => !s.upgrade)).toBe(true); // no websocket attempt for a custom provider
       // env mode
-      await h.upsertProfile({ id: 'default', serverUrl: `http://127.0.0.1:${port}`, keyId: 1, keyMode: 'env', models: { main: 'deepseek-v4-pro' } });
+      await h.upsertProfile({ id: 'default', serverUrl: `http://127.0.0.1:${port}`, keyId: 1, keyMode: 'env', models: { main: 'deepseek-v4-pro' }, codex: { setDefault: true } });
       await h.apply('codex', await h.plan('codex', 'default'));
       seen.length = 0;
       expect(await codex(args, work, { ...runEnv, PA_API_KEY: 'dummy-env-value' })).toContain('pong');

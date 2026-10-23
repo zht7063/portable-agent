@@ -1,0 +1,32 @@
+# Local packaging only. No publish/upload: `publish: null` and every script passes --publish never.
+appId: dev.portable-agent.client
+productName: Portable Agent
+directories:
+  app: stage
+  output: release
+publish: null
+npmRebuild: false
+asar: true
+# pa-key.cjs runs under ELECTRON_RUN_AS_NODE from the userData/bin wrapper; keep it (and the native keyring
+# module on macOS/Windows) outside the asar so plain Node resolution works.
+asarUnpack:
+  - dist/key-helper/**
+  - node_modules/@napi-rs/**
+files:
+  - package.json
+  - dist/**
+  - node_modules/@napi-rs/keyring/**
+  - node_modules/@napi-rs/keyring-darwin-*/**
+  - node_modules/@napi-rs/keyring-win32-*/**
+  - "!node_modules/@napi-rs/keyring-linux-*/**"
+linux:
+  target: dir
+  category: Development
+mac:
+  target: dir
+  identity: null
+win:
+  target: dir
+# Use the locally installed Electron; no download.
+electronDist: ../../node_modules/electron/dist
+electronVersion: 33.4.11

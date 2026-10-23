@@ -9,7 +9,10 @@
     "build": "npm run build:main && npm run build:renderer",
     "start": "npm run build && electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
-    "smoke": "npm run build && node scripts/smoke.mjs"
+    "smoke": "npm run build && node scripts/smoke.mjs",
+    "stage": "node scripts/stage.mjs",
+    "pack:dir": "npm run build && node scripts/stage.mjs && electron-builder --dir --publish never",
+    "smoke:packaged": "node scripts/smoke-packaged.mjs"
   },
   "dependencies": {
     "@pa/core": "0.0.0",
@@ -25,6 +28,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
     "esbuild": "^0.24.0",
     "jsdom": "^25.0.1",
     "vite": "^5.4.11"

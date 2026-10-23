@@ -66,8 +66,8 @@ Owned settings in `$CODEX_HOME/config.toml` (default `~/.codex`), edited with sm
 merger (`merge/toml.ts`): comments, ordering and unrelated tables are kept; result is re-parsed and verified.
 
 ```toml
-model = "<models.codex ?? models.main>"      # skipped when codex.setDefault = false
-model_provider = "pa"                         # skipped when codex.setDefault = false
+model = "<models.codex ?? models.main>"      # only when codex.setDefault = true (opt-in, H4 default false)
+model_provider = "pa"                         # only when codex.setDefault = true
 
 [model_providers.pa]
 name = "Portable Agent"
@@ -86,11 +86,29 @@ args = [ "<profileId>", "codex" ]
 - `auth.json` is only checked for existence; ChatGPT/API login is untouched. Detach restores only `model` /
   `model_provider`; the previous `[model_providers.<id>]` table is never snapshotted (could contain a token).
 - Warnings: top-level `profile = ...` may override; project `.codex/config.toml`; env var not exported;
-  `setDefault=false` gives a `codex -c model_provider=pa -m <model>` hint.
+  the default (`setDefault` unset/false; UI checkbox "设为 Codex 默认" opts in) gives a `codex -c model_provider=pa -m <model>` hint.
 - Server channel: the UI shows "服务端渠道未就绪" until probed. The probe (`harness:channel:probe`) is a GET
   `/v1/models` with the profile key in main; `model-listed` does **not** prove `/v1/responses` works. See
   `codex-responses-contract.md`.
 - Opt-in E2E: `PA_HARNESS_E2E=1 CODEX_BIN=/path/codex npx vitest run packages/core/test/harness-codex-e2e.test.ts`.
+
+## Local packaging (H4, no release)
+
+`cd apps/desktop && npm run pack:dir` → `release/<platform>-unpacked/` via electron-builder 25 (MIT, devDependency).
+`publish: null` plus `--publish never`; no tags, uploads or GitHub releases. Uses the locally installed Electron
+(`electronDist`), so nothing is downloaded.
+
+- `scripts/stage.mjs` builds a dependency-free app dir (`stage/`): esbuild/vite output only. `@napi-rs/keyring`
+  (+ its platform binary) is staged **only for macOS/Windows targets**; `@napi-rs/keyring-linux-*` is never
+  shipped (bundles libdbus, AFL-2.1 OR GPL-2.0+) and is also excluded in `electron-builder.yml`. Linux uses
+  `secret-tool` or env mode.
+- `dist/key-helper/**` and `node_modules/@napi-rs/**` are `asarUnpack`ed. On start the app (re)writes the
+  `pa-key` wrapper (0700) into `<userData>/bin/`, pointing at the app's own executable with
+  `ELECTRON_RUN_AS_NODE=1` and the unpacked `pa-key.cjs`.
+- `xvfb-run -a npm run smoke:packaged` (temp HOME/userData): boots the packaged app, checks the wrapper exists and
+  runs (clean non-zero exit, empty stdout without a keychain entry), and that no keyring-linux file is in the package.
+- Re-applying harness configs is needed if the app is moved (wrapper path is absolute); the wrapper itself is
+  rewritten on every start.
 
 ## Linux runtime dependency
 `secret-tool` (Debian/Ubuntu package `libsecret-tools`) and a running Secret Service (GNOME Keyring or KWallet) are needed for command key mode on Linux. Without them the client falls back to env key mode.

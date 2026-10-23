@@ -75,7 +75,8 @@ app.whenReady().then(async () => {
     onSessionChange: (v) => win?.webContents.send('session:changed', v),
   });
   // D4: pa-key wrapper lives in the client's own directory; harness configs reference its absolute path.
-  const helperScript = join(__dirname, '../key-helper/pa-key.cjs');
+  // Packaged: the script is asarUnpack'ed so ELECTRON_RUN_AS_NODE can load it (and resolve @napi-rs/keyring) from disk.
+  const helperScript = join(__dirname, '../key-helper/pa-key.cjs').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
   let helperPath = join(userData, 'bin', process.platform === 'win32' ? 'pa-key.cmd' : 'pa-key');
   try { helperPath = await installWrapper({ dir: join(userData, 'bin'), execPath: process.execPath, scriptPath: helperScript }); }
   catch { /* harness panel reports the helper as missing */ }

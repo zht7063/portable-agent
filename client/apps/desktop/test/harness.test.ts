@@ -157,7 +157,7 @@ describe('Pi via IPC (H1)', () => {
     expect(probe).toMatchObject({ ok: true, data: { state: 'model-listed', model: 'deepseek-v4-pro' } });
     expect(JSON.stringify(probe)).not.toContain(SECRET);
     expect(seen.every((x) => x.method === 'GET' && x.url.endsWith('/v1/models'))).toBe(true);
-    await dispatch(handlers, 'harness:profile:upsert', { ...prof, models: { main: 'deepseek-v4-pro', codex: 'not-there' } });
+    await dispatch(handlers, 'harness:profile:upsert', { ...prof, models: { main: 'deepseek-v4-pro', codex: 'not-there' }, codex: { setDefault: true } });
     expect(await dispatch(handlers, 'harness:channel:probe', { profileId: 'default' })).toMatchObject({ ok: true, data: { state: 'model-missing' } });
     const plan = await dispatch(handlers, 'harness:plan', { id: 'codex', profileId: 'default' });
     if (!plan.ok) throw new Error('plan failed');
