@@ -13,7 +13,7 @@ const plan = (conflicts: Plan['conflicts'] = []): Plan => ({
   id: 'pi', profileId: 'default', createdAt: '', baseFingerprints: {}, warnings: ['w1'], externalUnownedChange: [], conflicts,
   changes: [{ file: '/tmp/h/.pi/agent/models.json', setting: 'providers.pa', kind: 'create', before: null, after: '{"apiKey":"!pa-key default pi"}' }],
 });
-function setup(p: Plan, keyringAvailable = true) {
+function setup(p: Plan, keyringAvailable = true, extra: Parameters<typeof mockPa>[0] = {}) {
   return mockPa({
     'harness:detect': () => det,
     'harness:keyring:status': () => ({ available: keyringAvailable, backend: keyringAvailable ? 'memory' : 'none', entries: [], ...(keyringAvailable ? {} : { fallback: 'env' }) }),
@@ -23,6 +23,7 @@ function setup(p: Plan, keyringAvailable = true) {
     'harness:plan': () => p,
     'harness:apply': () => ({ id: 'pi', written: ['/tmp/h/.pi/agent/models.json'], warnings: [] }),
     'harness:rollback': () => ({ id: 'pi', written: [], warnings: [] }),
+    ...extra,
   });
 }
 
@@ -117,5 +118,20 @@ describe('HarnessPanel (Codex)', () => {
     await userEvent.click(screen.getByText('预览变更'));
     expect(pa.calls('harness:profile:upsert')[1]).toMatchObject({ codex: { setDefault: true } });
     await waitFor(() => expect(pa.calls('harness:plan')[0]).toEqual({ id: 'codex', profileId: 'default' }));
+  });
+});
+
+describe('HarnessPanel rollback external edits (Aegis #1)', () => {
+  it('asks a second time and sends overwriteExternal only when the user confirms', async () => {
+    const pa = setup(plan(), true, { 'harness:rollback:preview': () => ({ id: 'pi', target: 'last', files: [], changes: [], warnings: [], externalEdits: ['/tmp/h/.pi/agent/models.json'] }) });
+    render(<HarnessPanel keyId={3} serverUrl="http://h:3000" />);
+    await screen.findByText(/已安装 0.70.2/);
+    const c = vi.spyOn(window, 'confirm').mockReturnValueOnce(true).mockReturnValueOnce(false);
+    await userEvent.click(screen.getByText('回滚到上一版'));
+    await waitFor(() => expect(c).toHaveBeenCalledTimes(2));
+    expect(pa.calls('harness:rollback')).toEqual([]);
+    c.mockReturnValue(true);
+    await userEvent.click(screen.getByText('回滚到上一版'));
+    await waitFor(() => expect(pa.calls('harness:rollback')[0]).toEqual({ id: 'pi', target: 'last', confirm: true, overwriteExternal: true }));
   });
 });

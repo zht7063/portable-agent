@@ -7,7 +7,7 @@ import type { HarnessProfile, RollbackTarget } from '@pa/core';
 import { accountFor, createKeyring, keyringStatus, type Keyring } from '@pa/key-helper';
 
 export const HARNESS_HELP = `pa harness detect | plan <id> --profile <pid> | apply <id> --profile <pid> --yes
-          | rollback <id> [--first-write | --detach | --snapshot <sid>] --yes | status | env-scan [--no-login-shell]
+          | rollback <id> [--first-write | --detach | --snapshot <sid>] [--overwrite-external] --yes | status | env-scan [--no-login-shell]
           | key-check <profileId> [<harness>] | profile list | profile set <profile.json>
   --helper <abs> pa-key path written into configs (default $PA_KEY_HELPER or <dataDir>/bin/pa-key)
   --home <dir>   use <dir> as HOME (tests: point at a temp dir); data dir defaults to <home>/.config/portable-agent-cli/harness`;
@@ -78,7 +78,7 @@ export async function runHarness(argv: string[], d: HarnessCliDeps): Promise<num
       const h = id(); const sid = take(args, '--snapshot');
       const target: RollbackTarget = has(args, '--first-write') ? 'first-write' : has(args, '--detach') ? 'detach' : sid ? { snapshotId: sid } : 'last';
       if (!has(args, '--yes')) { d.err('rollback requires --yes'); return 1; }
-      d.out(await harness.rollback(h, target));
+      d.out(await harness.rollback(h, target, { overwriteExternal: has(args, '--overwrite-external') }));
       return 0;
     }
     case 'status': {

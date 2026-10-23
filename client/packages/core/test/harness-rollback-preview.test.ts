@@ -64,3 +64,27 @@ describe('rollback history + preview (H4)', () => {
     expect((await s.h.previewRollback('codex', { snapshotId: 'nope' })).blocked).toMatch(/not found/);
   });
 });
+
+describe('rollback guards external edits (Aegis #1)', () => {
+  it('refuses to discard edits made after our last apply unless overwriteExternal; preview lists them', async () => {
+    const s = await setup();
+    await writeFile(s.config, '# mine\nmodel = "gpt-5"\n');
+    await s.h.upsertProfile(profile('m1')); await s.h.apply('codex', await s.h.plan('codex', 'default'));
+    // clean state: no confirmation needed
+    expect((await s.h.previewRollback('codex', 'first-write')).externalEdits).toBeUndefined();
+    // user edits an unrelated line after apply
+    const edited = (await readFile(s.config, 'utf8')) + '\n[tui]\nanimations = false\n';
+    await writeFile(s.config, edited);
+    expect((await s.h.previewRollback('codex', 'last')).externalEdits).toEqual([s.config]);
+    await expect(s.h.rollback('codex', 'last')).rejects.toThrow(/Modified after Portable Agent last wrote them/);
+    await expect(s.h.rollback('codex', 'first-write')).rejects.toThrow(/confirm overwrite/);
+    expect(await readFile(s.config, 'utf8')).toBe(edited); // untouched
+    await s.h.rollback('codex', 'first-write', { overwriteExternal: true });
+    expect(await readFile(s.config, 'utf8')).toBe('# mine\nmodel = "gpt-5"\n');
+    // the discarded edits remain recoverable from the pre-rollback snapshot
+    const snap = (await s.h.history('codex')).snapshots[0]!;
+    expect(snap.action).toBe('rollback');
+    await s.h.rollback('codex', { snapshotId: snap.snapshotId }, { overwriteExternal: true });
+    expect(await readFile(s.config, 'utf8')).toBe(edited);
+  });
+});

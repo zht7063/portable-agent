@@ -9,7 +9,7 @@ import type { ExecFn } from '../exec.js';
 import { getPath, mergeOwnedJson, parseJsonc, type JsonEdit } from '../merge/json.js';
 import { maskValue } from '../mask.js';
 import type { HarnessEnv } from '../paths.js';
-import { canonicalJson, classifyChange, hashOwnedValues, type HistoryEntry, type ManagedFileState, type StateStore } from '../state.js';
+import { canonicalJson, classifyChange, hashOwnedValues, type HarnessState, type HistoryEntry, type ManagedFileState, type StateStore } from '../state.js';
 
 export interface AdapterOptions {
   fs: ControlledFs;
@@ -270,11 +270,29 @@ export abstract class JsonHarnessAdapter implements HarnessAdapter {
       try { after = bText === null ? {} : this.parseText(bText); } catch { warnings.push(`${e.path}: backup is not parseable; it will be restored byte-for-byte`); continue; }
       diff(e.path, settings, cur.root, after);
     }
+    const externalEdits = await this.externalEdits(entries, st);
     if (files.some((f) => f.kind !== 'unchanged') && !changes.length) warnings.push('Only settings not managed by Portable Agent differ; the files will still be restored byte-for-byte');
-    return { id: this.id, target, files, changes, warnings };
+    return { id: this.id, target, files, changes, warnings, ...(externalEdits.length ? { externalEdits } : {}) };
   }
 
-  async rollback(target: RollbackTarget): Promise<ApplyResult> {
+  /**
+   * Files the restore would change although they no longer match what we last wrote (or that we never wrote):
+   * i.e. the user edited them after our apply. Restoring would discard those edits.
+   */
+  private async externalEdits(entries: { path: string; data: Uint8Array | null }[], st: HarnessState): Promise<string[]> {
+    const out: string[] = [];
+    for (const e of entries) {
+      const cur = await this.o.fs.readText(e.path);
+      const curBytes = cur ? new TextEncoder().encode(cur.text) : null;
+      const same = e.data === null ? curBytes === null : curBytes !== null && Buffer.from(curBytes).equals(Buffer.from(e.data));
+      if (same || !cur) continue; // no-op restore, or file absent (nothing of the user's to lose)
+      const last = st.files[e.path]?.harness === this.id ? st.files[e.path]!.lastWritten : null;
+      if (!last || last.sha256 !== cur.fingerprint.sha256 || last.size !== cur.fingerprint.size) out.push(e.path);
+    }
+    return out;
+  }
+
+  async rollback(target: RollbackTarget, opts: { overwriteExternal?: boolean } = {}): Promise<ApplyResult> {
     if (target === 'detach') return this.detach();
     const st = await this.o.state.load();
     let source: 'first-write' | { snapshotId: string };
@@ -288,7 +306,11 @@ export abstract class JsonHarnessAdapter implements HarnessAdapter {
       prior = st.history.find((h) => h.harness === this.id && h.snapshotId === target.snapshotId);
     }
     const entries = await this.o.fs.loadBackup(this.id, source);
-    const hist = await this.snapshotWithState('rollback'); // current state stays recoverable
+    const edited = await this.externalEdits(entries, st);
+    if (edited.length && !opts.overwriteExternal) {
+      bad(`Modified after Portable Agent last wrote them: ${edited.join(', ')}. Rolling back would discard those edits; confirm overwrite to continue`);
+    }
+    const hist = await this.snapshotWithState('rollback'); // current state stays recoverable (incl. the user's edits)
     const written = await this.restore(entries);
     await this.o.state.update((s) => {
       for (const p of this.configPaths()) delete s.files[p];

@@ -118,7 +118,8 @@ describe('claude adapter: plan/apply/rollback', () => {
     await writeFile(s.settings, JSON.stringify(j));
     const plan = await s.h.plan('claude', 'default');
     expect(plan.conflicts[0]?.kind).toBe('external-owned-change');
-    await s.h.rollback('claude', 'first-write');
+    await expect(s.h.rollback('claude', 'first-write')).rejects.toThrow(/Modified after Portable Agent/);
+    await s.h.rollback('claude', 'first-write', { overwriteExternal: true });
     expect(await readFile(s.settings, 'utf8')).toBe(before);
   });
 

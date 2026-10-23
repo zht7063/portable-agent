@@ -112,6 +112,8 @@ export interface RollbackPreview {
   warnings: string[];
   /** Set when the real rollback would be refused (e.g. detach after external edits). */
   blocked?: string;
+  /** Files edited by the user after our last write; rollback needs overwriteExternal (explicit confirmation). */
+  externalEdits?: string[];
 }
 
 export interface HarnessAdapter {
@@ -120,7 +122,7 @@ export interface HarnessAdapter {
   read(): Promise<LiveSnapshot>;
   plan(profile: HarnessProfile): Promise<Plan>;
   apply(plan: Plan, opts: { acknowledge: ConflictAck[] }): Promise<ApplyResult>;
-  rollback(target: RollbackTarget): Promise<ApplyResult>;
+  rollback(target: RollbackTarget, opts?: { overwriteExternal?: boolean }): Promise<ApplyResult>;
   history(): Promise<HarnessHistory>;
   previewRollback(target: RollbackTarget): Promise<RollbackPreview>;
 }
@@ -156,7 +158,8 @@ export interface HarnessPlanReq { id: HarnessId; profileId: string }
 export interface HarnessApplyReq { id: HarnessId; plan: Plan; acknowledge?: ConflictAck[]; confirm: true }
 export interface HarnessHistoryReq { id: HarnessId }
 export interface HarnessRollbackPreviewReq { id: HarnessId; target: RollbackTarget }
-export interface HarnessRollbackReq { id: HarnessId; target: RollbackTarget; confirm: true }
+/** overwriteExternal: the user explicitly confirmed discarding edits made after our last write. */
+export interface HarnessRollbackReq { id: HarnessId; target: RollbackTarget; confirm: true; overwriteExternal?: boolean }
 export interface HarnessKeyringStatusReq { profileId?: string }
 export interface HarnessProfileListRes { profiles: HarnessProfile[] }
 

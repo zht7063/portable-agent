@@ -72,7 +72,14 @@ export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: num
   };
   const doRollback = (target: 'last' | 'first-write' | 'detach', label: string) => {
     if (!window.confirm(`${label}？当前配置会先做快照。`)) return;
-    void run(async () => { const r = await call('harness:rollback', { id: harness, target, confirm: true }); setPlan(null); await loadData(); setNote(`${label}完成：${r.written.join(', ') || '无变更'}`); });
+    void run(async () => {
+      // Aegis #1: files edited after our last write are only overwritten after a second, explicit confirmation.
+      const pv = target === 'detach' ? null : await call('harness:rollback:preview', { id: harness, target });
+      const overwriteExternal = !!pv?.externalEdits?.length;
+      if (overwriteExternal && !window.confirm(`以下文件在上次写入后被修改过，${label}会丢弃这些修改（修改前会先快照）：\n${pv!.externalEdits!.join('\n')}\n确定覆盖？`)) return;
+      const r = await call('harness:rollback', { id: harness, target, confirm: true, ...(overwriteExternal ? { overwriteExternal: true } : {}) });
+      setPlan(null); await loadData(); setNote(`${label}完成：${r.written.join(', ') || '无变更'}`);
+    });
   };
   const probe = () => run(async () => setChannel(await call('harness:channel:probe', { profileId: 'default' })));
   const unresolved = plan?.conflicts.some((c) => !acks[c.id] || acks[c.id] === 'cancel') ?? false;

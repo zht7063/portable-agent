@@ -105,7 +105,7 @@ export function createHarness(d: HarnessDeps) {
       if (plan?.id !== id) throw new PaException({ code: 'VALIDATION', message: 'Plan does not match harness' });
       return a.apply(plan, { acknowledge });
     },
-    async rollback(id: HarnessId, target: RollbackTarget): Promise<ApplyResult> { return adapter(check(id)).rollback(target); },
+    async rollback(id: HarnessId, target: RollbackTarget, opts: { overwriteExternal?: boolean } = {}): Promise<ApplyResult> { return adapter(check(id)).rollback(target, { overwriteExternal: opts.overwriteExternal === true }); },
     async history(id: HarnessId): Promise<HarnessHistory> { return adapter(check(id)).history(); },
     async previewRollback(id: HarnessId, target: RollbackTarget): Promise<RollbackPreview> { return adapter(check(id)).previewRollback(target); },
     async envScan(ids: HarnessId[] = [...HARNESS_IDS], expected: Record<string, string> = {}, o: EnvScanOptions = {}): Promise<EnvScanResult> {
