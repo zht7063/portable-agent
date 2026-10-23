@@ -1,3 +1,4 @@
+import { redact } from './redact.js';
 /** Error codes shared by core, CLI and the IPC boundary. */
 export const PA_ERROR_CODES = [
   'NETWORK',
@@ -39,8 +40,9 @@ export class PaException extends Error {
   }
 }
 
+/** Normalizes any thrown value to a PaError whose message is always redacted (safe for UI/CLI). */
 export function toPaError(e: unknown): PaError {
-  if (e instanceof PaException) return e.error;
+  if (e instanceof PaException) return { ...e.error, message: redact(e.error.message) };
   if (e instanceof Error && e.name === 'AbortError') return { code: 'CANCELLED', message: 'Request cancelled' };
   return { code: 'SERVER', message: 'Unexpected error' };
 }

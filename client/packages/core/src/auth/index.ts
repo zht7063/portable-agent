@@ -76,7 +76,10 @@ export function createAuth(http: HttpClient, session: DefaultSessionManager): Au
       return session.view();
     },
     async refresh() {
-      if (!(await session.refresh())) throw new PaException({ code: 'SESSION_EXPIRED', message: 'Session expired, please log in again' });
+      if (!(await session.refresh())) {
+        const t = session.transientError?.();
+        throw new PaException(t ?? { code: 'SESSION_EXPIRED', message: 'Session expired, please log in again' });
+      }
       return session.view();
     },
     async logout() {

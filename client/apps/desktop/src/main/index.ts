@@ -1,3 +1,5 @@
+import { pathToFileURL } from 'node:url';
+import { isTrustedSender, untrustedSender } from './ipc/sender';
 import { app, BrowserWindow, clipboard, ipcMain, session as electronSession, shell } from 'electron';
 import { join } from 'node:path';
 import { DEFAULT_SERVER_URL, INVOKE_CHANNELS, type InvokeChannel } from '@pa/core';
@@ -7,6 +9,10 @@ import { ConfigStore } from './config-store';
 import { CoreHost } from './core-host';
 
 let win: BrowserWindow | null = null;
+
+const RENDERER_PATH = join(__dirname, '../renderer/index.html');
+/** The only origin allowed to call IPC: our bundled renderer, loaded via file://. */
+const RENDERER_URL = pathToFileURL(RENDERER_PATH).href;
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -28,7 +34,7 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' };
   });
   if (process.env.PA_SMOKE === '1') runSmoke(win);
-  void win.loadFile(join(__dirname, '../renderer/index.html'));
+  void win.loadFile(RENDERER_PATH);
   return win;
 }
 
@@ -73,7 +79,7 @@ app.whenReady().then(async () => {
     emitStream: (e) => win?.webContents.send('chat:stream:event', e),
   });
   for (const ch of INVOKE_CHANNELS) {
-    ipcMain.handle(ch, (_e, req) => dispatch(handlers, ch as InvokeChannel, req));
+    ipcMain.handle(ch, (e, req) => (isTrustedSender(e, win, RENDERER_URL) ? dispatch(handlers, ch as InvokeChannel, req) : untrustedSender()));
   }
   // Handlers are registered before the renderer loads, so its first invoke never races.
   win = createWindow();

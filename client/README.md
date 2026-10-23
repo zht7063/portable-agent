@@ -81,6 +81,12 @@ PA_LIVE=1 PA_USER=<test user> PA_PASS=<password> [PA_SERVER_URL=...] npm run tes
   The only exception is the explicit **显示 (reveal)** action, which requires a confirm dialog and sends `confirm: true`.
   **复制 (copy)** is the primary path: main writes the key to the clipboard without sending it to the renderer.
   Every IPC response passes a credential-leak guard.
+- IPC sender check: main only answers requests from the **top frame of our own window showing the bundled
+  `file://…/renderer/index.html`**; anything else (iframes, other windows/webContents, navigated pages) gets `UNAUTHORIZED`.
+- Sessions end only when refresh is explicitly rejected (HTTP 401/403); 5xx, network errors, timeouts and rate limits keep you logged in.
+- Every error message shown in the UI or printed by the CLI is redacted (URLs/hosts/IPs, Bearer/cookies, `sk-`/`nap_`/JWT and long opaque tokens).
+- Chat requests have a first-byte timeout (default 60s) and idle timeout (default 90s, between stream chunks), configurable via
+  `createCore({ chatTimeouts })`; expiry aborts the request and reports `TIMEOUT`.
 - Electron: `contextIsolation`, `sandbox`, no `nodeIntegration`, navigation/new windows blocked, permissions denied.
 - Session storage: OS keychain via `safeStorage` when available, otherwise **memory-only** (log in again after restart).
 - See `docs/contracts.md` for the IPC/error contract.

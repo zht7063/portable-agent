@@ -42,6 +42,8 @@ export type Unsubscribe = () => void;
 
 /** Implemented by core/session/manager (M1a). M0 ships the interface + a stub. */
 export interface SessionManager {
+  /** Last refresh failure if it was transient (session kept); null otherwise. */
+  transientError?(): import('./errors.js').PaError | null;
   view(): SessionView;
   /** Returns a valid access token, refreshing ~60s before expiry; concurrent callers share one refresh. */
   getAccessToken(): Promise<string>;

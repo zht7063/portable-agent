@@ -43,7 +43,7 @@ describe('core helpers and stubs', () => {
     expect(toSk('abc')).toBe('sk-abc');
     expect(toSk('sk-abc')).toBe('sk-abc');
     expect(DEFAULT_MAX_TOKENS).toBe(2048);
-    expect(redact('Bearer sk-abcdefghijkl new_api_refresh=zzz;')).toBe('Bearer sk-*** new_api_refresh=***;');
+    expect(redact('Bearer sk-abcdefghijkl new_api_refresh=zzz;')).toBe('Bearer *** new_api_refresh=***;');
   });
   it('createCore wires defaults; unauthenticated session call rejects', async () => {
     const core = createCore({ store: new MemoryTokenStore() });

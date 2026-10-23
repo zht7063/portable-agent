@@ -5,7 +5,7 @@
  *   PA_SERVER_URL, PA_USER, PA_PASS (login/register), PA_REDEEM_ENV (name of env var holding the code).
  */
 import { join } from 'node:path';
-import { createCore, DEFAULT_SERVER_URL, findCredentialLeaks, normalizeServerUrl, toPaError, type ChatMessage } from '@pa/core';
+import { createCore, DEFAULT_SERVER_URL, findCredentialLeaks, normalizeServerUrl, redact, toPaError, type ChatMessage } from '@pa/core';
 import { CliConfig } from './config.js';
 import { FileKeyVault, FileTokenStore } from './stores/file.js';
 
@@ -128,5 +128,5 @@ export async function main(argv: string[]): Promise<number> {
 
 if (process.argv[1] && /(?:^|[\\/])index\.(?:ts|js)$/.test(process.argv[1])) main(process.argv.slice(2)).then(
   (code) => process.exit(code),
-  (e) => { const p = toPaError(e); console.error(p.code === 'SERVER' && e instanceof Error && !('error' in e) ? e.message : `${p.code}: ${p.message}`); process.exit(1); },
+  (e) => { const p = toPaError(e); console.error(redact(p.code === 'SERVER' && e instanceof Error && !('error' in e) ? e.message : `${p.code}: ${p.message}`)); process.exit(1); },
 );

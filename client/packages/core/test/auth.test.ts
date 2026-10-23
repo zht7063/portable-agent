@@ -113,7 +113,7 @@ describe('auth module', () => {
   it('network failure during refresh keeps stored session', async () => {
     const { core, store } = setup({ 'POST /api/user/auth/refresh': () => { throw new TypeError('fetch failed'); } });
     await store.save({ serverUrl: 'http://srv', refreshCookie: 'c1', userId: 3, username: 'tester' });
-    expect((await core.session.restore()).status).toBe('expired');
+    expect((await core.session.restore()).status).toBe('authenticated') // transient: still logged in;
     expect(await store.load()).not.toBeNull();
   });
 

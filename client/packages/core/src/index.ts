@@ -19,11 +19,13 @@ import { createAuth } from './auth/index.js';
 import { createBilling } from './billing/index.js';
 import { createModels } from './models/index.js';
 import { createKeys, MemoryKeyVault, type KeyVault } from './keys/index.js';
-import { createChat } from './chat/index.js';
+import { createChat, type ChatTimeouts } from './chat/index.js';
 
 export const DEFAULT_SERVER_URL = 'http://38.246.253.190:3000';
 
-export interface CoreOptions { serverUrl?: string; store: TokenStore; vault?: KeyVault; fetch?: FetchLike; clock?: Clock; timeoutMs?: number }
+export interface CoreOptions { serverUrl?: string; store: TokenStore; vault?: KeyVault; fetch?: FetchLike; clock?: Clock; timeoutMs?: number;
+  /** Chat deadlines (default firstByte 60s, idle 90s); expiry aborts the request and maps to TIMEOUT. */
+  chatTimeouts?: Partial<ChatTimeouts> }
 
 export function createCore(opts: CoreOptions) {
   const serverUrl = (opts.serverUrl ?? DEFAULT_SERVER_URL).replace(/\/+$/, '');
@@ -36,7 +38,7 @@ export function createCore(opts: CoreOptions) {
     const id = keyId ?? defaultKeyId;
     if (id === undefined) throw new PaException({ code: 'VALIDATION', message: 'Select an API key first' });
     return keys.secret(id);
-  });
+  }, opts.chatTimeouts);
   return {
     http,
     session,

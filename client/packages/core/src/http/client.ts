@@ -1,4 +1,4 @@
-import { PaException, type PaErrorCode } from '../contract/errors.js';
+import { PaException, type PaError, type PaErrorCode } from '../contract/errors.js';
 
 export type FetchLike = typeof fetch;
 
@@ -6,6 +6,7 @@ export type FetchLike = typeof fetch;
 export interface AuthProvider {
   getAccessToken(): Promise<string>;
   onUnauthorized(): Promise<boolean>;
+  transientError?(): PaError | null;
 }
 
 export interface HttpClientOptions {
@@ -28,14 +29,8 @@ export interface RequestOpts {
   noTimeout?: boolean;
 }
 
-/** Redact credential-looking substrings from text destined for logs/UI. */
-export function redact(text: string): string {
-  return text
-    .replace(/sk-[A-Za-z0-9]{8,}/g, 'sk-***')
-    .replace(/nap_[A-Za-z0-9]{8,}/g, 'nap_***')
-    .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '<jwt>')
-    .replace(/(new_api_refresh=)[^;\s]+/g, '$1***');
-}
+export { redact } from '../contract/redact.js';
+import { redact } from '../contract/redact.js';
 
 export function codeForStatus(status: number): PaErrorCode {
   if (status === 401) return 'UNAUTHORIZED';
@@ -104,6 +99,9 @@ export class HttpClient {
           signal: signals.length ? AbortSignal.any(signals) : undefined,
         });
       } catch (e) {
+        // Caller-provided deadline (e.g. chat timeouts) aborts with a PaException reason.
+        if (opts.signal?.aborted && opts.signal.reason instanceof PaException) throw opts.signal.reason;
+        if (e instanceof PaException) throw e;
         const name = (e as Error)?.name;
         if (name === 'TimeoutError') throw new PaException({ code: 'TIMEOUT', message: 'Request timed out' });
         if (name === 'AbortError') throw new PaException({ code: 'CANCELLED', message: 'Request cancelled' });
@@ -111,8 +109,13 @@ export class HttpClient {
       }
     };
     let res = await attempt();
-    if (res.status === 401 && auth === 'session' && this.auth && (await this.auth.onUnauthorized())) {
-      res = await attempt();
+    if (res.status === 401 && auth === 'session' && this.auth) {
+      if (await this.auth.onUnauthorized()) res = await attempt();
+      else {
+        // Refresh failed transiently (5xx/network): report that, the session is kept.
+        const t = this.auth.transientError?.();
+        if (t) throw new PaException(t);
+      }
     }
     if (!res.ok) throw await errorFromResponse(res);
     return res;

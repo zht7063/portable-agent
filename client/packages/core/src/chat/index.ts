@@ -11,6 +11,38 @@ export interface ChatModule {
   stream(req: ChatReq & { reqId: string }, emit: (e: ChatStreamEvent) => void, signal?: AbortSignal): Promise<void>;
 }
 
+export interface ChatTimeouts {
+  /** Max wait from sending the request until response headers arrive (connect + first byte). */
+  firstByteMs: number;
+  /** Max gap between body chunks (stream) / max wait for the full body (non-stream). */
+  idleMs: number;
+}
+export const DEFAULT_CHAT_TIMEOUTS: ChatTimeouts = { firstByteMs: 60_000, idleMs: 90_000 };
+
+/** AbortController that aborts with a TIMEOUT PaException when an armed deadline passes; follows the caller's signal. */
+class Deadline {
+  readonly ac = new AbortController();
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  constructor(parent?: AbortSignal) {
+    if (parent?.aborted) this.ac.abort(parent.reason);
+    else parent?.addEventListener('abort', () => this.ac.abort(parent.reason), { once: true });
+  }
+  arm(ms: number, phase: string) {
+    this.clear();
+    if (ms > 0 && Number.isFinite(ms)) {
+      this.timer = setTimeout(() => this.ac.abort(new PaException({ code: 'TIMEOUT', message: `Chat ${phase} timed out after ${Math.round(ms / 1000)}s` })), ms);
+    }
+  }
+  clear() { if (this.timer) clearTimeout(this.timer); this.timer = undefined; }
+  /** Error to report: our TIMEOUT if we fired it, CANCELLED if the caller aborted, else the original. */
+  error(e: unknown) {
+    const reason = this.ac.signal.reason;
+    if (this.ac.signal.aborted && reason instanceof PaException) return reason.error;
+    if (this.ac.signal.aborted || (e as Error)?.name === 'AbortError') return { code: 'CANCELLED' as const, message: 'Request cancelled' };
+    return toPaError(e);
+  }
+}
+
 /** Resolves the full sk for a request (keyId -> KeysModule.secret, or default key). */
 export type KeyResolver = (keyId?: number) => Promise<string>;
 
@@ -33,14 +65,31 @@ function body(req: ChatReq, stream: boolean) {
   };
 }
 
-export function createChat(http: HttpClient, resolveKey: KeyResolver): ChatModule {
+export function createChat(http: HttpClient, resolveKey: KeyResolver, timeouts: Partial<ChatTimeouts> = {}): ChatModule {
+  const t: ChatTimeouts = { ...DEFAULT_CHAT_TIMEOUTS, ...timeouts };
+  /** Race a body read against the armed deadline (some fetch impls ignore abort once headers arrived). */
+  const guarded = <T>(dl: Deadline, p: Promise<T>) => new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(dl.ac.signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    // Always consume p so a late rejection after we bailed out is never unhandled.
+    p.then(resolve, reject).finally(() => dl.ac.signal.removeEventListener('abort', onAbort));
+    if (dl.ac.signal.aborted) onAbort();
+    else dl.ac.signal.addEventListener('abort', onAbort, { once: true });
+  });
   return {
     async complete(req, signal) {
       const sk = await resolveKey(req.keyId);
-      const d = await http.json<{
-        choices?: { message?: { content?: string | null; reasoning_content?: string | null }; finish_reason?: FinishReason }[];
-        usage?: RawUsage;
-      }>('POST', '/v1/chat/completions', { auth: { sk }, body: body(req, false), signal, noTimeout: true });
+      const payload = body(req, false);
+      const dl = new Deadline(signal);
+      type Raw = { choices?: { message?: { content?: string | null; reasoning_content?: string | null }; finish_reason?: FinishReason }[]; usage?: RawUsage };
+      let d: Raw;
+      try {
+        dl.arm(t.firstByteMs, 'first byte');
+        const res = await guarded(dl, http.send('POST', '/v1/chat/completions', { auth: { sk }, body: payload, signal: dl.ac.signal, noTimeout: true }));
+        dl.arm(t.idleMs, 'response');
+        d = await guarded(dl, res.json() as Promise<Raw>);
+      } catch (e) {
+        throw new PaException(dl.error(e));
+      } finally { dl.clear(); }
       const c = d.choices?.[0];
       const content = c?.message?.content ?? '';
       const finishReason = c?.finish_reason ?? null;
@@ -54,9 +103,12 @@ export function createChat(http: HttpClient, resolveKey: KeyResolver): ChatModul
       let content = '';
       let finish: FinishReason = null;
       let doneSent = false;
+      const dl = new Deadline(signal);
       try {
         const sk = await resolveKey(req.keyId);
-        const res = await http.send('POST', '/v1/chat/completions', { auth: { sk }, body: body(req, true), signal, noTimeout: true, headers: { Accept: 'text/event-stream' } });
+        const payload = body(req, true);
+        dl.arm(t.firstByteMs, 'first byte');
+        const res = await guarded(dl, http.send('POST', '/v1/chat/completions', { auth: { sk }, body: payload, signal: dl.ac.signal, noTimeout: true, headers: { Accept: 'text/event-stream' } }));
         if (!res.body) throw new PaException({ code: 'SERVER', message: 'Empty stream' });
         const parser = new SseParser();
         const decoder = new TextDecoder();
@@ -80,16 +132,16 @@ export function createChat(http: HttpClient, resolveKey: KeyResolver): ChatModul
         };
         const reader = res.body.getReader();
         for (;;) {
-          const { value, done } = await reader.read();
+          dl.arm(t.idleMs, 'stream idle');
+          const { value, done } = await guarded(dl, reader.read()).catch((e) => { void reader.cancel().catch(() => {}); throw e; });
           if (done) break;
           for (const p of parser.push(decoder.decode(value, { stream: true }))) handle(p);
         }
         for (const p of parser.flush()) handle(p);
         if (!doneSent) { doneSent = true; const w = truncatedWarning(content, finish); emit({ reqId, type: 'done', finishReason: finish, ...(w ? { warning: w } : {}) }); }
       } catch (e) {
-        const error = (e as Error)?.name === 'AbortError' ? { code: 'CANCELLED' as const, message: 'Request cancelled' } : toPaError(e);
-        emit({ reqId, type: 'error', error });
-      }
+        emit({ reqId, type: 'error', error: dl.error(e) });
+      } finally { dl.clear(); }
     },
   };
 }

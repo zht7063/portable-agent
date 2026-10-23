@@ -1,10 +1,14 @@
-import { PaException } from '../contract/errors.js';
+import { PaException, type PaError } from '../contract/errors.js';
 import type { SessionManager, SessionStatus, SessionView, StoredSession, TokenStore, Unsubscribe } from '../contract/session.js';
 
 export interface Clock { now(): number /* ms */ }
 export const systemClock: Clock = { now: () => Date.now() };
 
 export interface RefreshResult { accessToken: string; accessExpiresAt: number; stored: StoredSession }
+const isAuthRejectionError = (p: PaError) => p.status === 401 || p.status === 403;
+/** True only for an explicit server auth rejection of the refresh (HTTP 401/403). */
+export const isAuthRejection = (e: unknown) => e instanceof PaException && isAuthRejectionError(e.error);
+
 /** Performs POST /api/user/auth/refresh with the stored cookie. Throws PaException on failure. */
 export type Refresher = (stored: StoredSession) => Promise<RefreshResult>;
 
@@ -20,11 +24,16 @@ export class DefaultSessionManager implements SessionManager {
   private refreshing: Promise<boolean> | null = null;
   private lastRefreshAt = 0;
   private refresher: Refresher | null = null;
+  private lastRefreshError: PaError | null = null;
   private listeners = new Set<(v: SessionView) => void>();
   private readonly clock: Clock;
 
   constructor(private readonly opts: { store: TokenStore; serverUrl: string; clock?: Clock }) {
     this.clock = opts.clock ?? systemClock;
+  }
+
+  transientError(): PaError | null {
+    return this.stored && this.lastRefreshError && !isAuthRejectionError(this.lastRefreshError) ? this.lastRefreshError : null;
   }
 
   setRefresher(r: Refresher) { this.refresher = r; }
@@ -33,7 +42,9 @@ export class DefaultSessionManager implements SessionManager {
   view(): SessionView {
     const base = { storage: this.opts.store.kind, serverUrl: this.opts.serverUrl };
     if (!this.stored) return { status: 'anonymous', ...base };
-    const status: SessionStatus = this.refreshing ? 'refreshing' : this.accessToken ? 'authenticated' : 'expired';
+    // A transient refresh failure keeps the user logged in (token re-fetched on next call).
+    const transient = !!this.lastRefreshError && !isAuthRejectionError(this.lastRefreshError);
+    const status: SessionStatus = this.refreshing ? 'refreshing' : this.accessToken || transient ? 'authenticated' : 'expired';
     return { status, userId: this.stored.userId, username: this.stored.username, accessExpiresAt: this.accessExpiresAt, ...base };
   }
 
@@ -47,7 +58,11 @@ export class DefaultSessionManager implements SessionManager {
     if (needs && this.stored && (!this.accessToken || this.clock.now() - this.lastRefreshAt >= MIN_PROACTIVE_INTERVAL_MS)) {
       await this.refresh();
     }
-    if (!this.accessToken) throw new PaException({ code: this.stored ? 'SESSION_EXPIRED' : 'UNAUTHORIZED', message: 'Not logged in' });
+    if (!this.accessToken) {
+      // Session kept after a transient refresh failure: surface that failure (e.g. NETWORK), not "logged out".
+      if (this.stored && this.lastRefreshError && !isAuthRejectionError(this.lastRefreshError)) throw new PaException(this.lastRefreshError);
+      throw new PaException({ code: this.stored ? 'SESSION_EXPIRED' : 'UNAUTHORIZED', message: 'Not logged in' });
+    }
     return this.accessToken;
   }
 
@@ -69,12 +84,14 @@ export class DefaultSessionManager implements SessionManager {
         this.accessToken = r.accessToken;
         this.accessExpiresAt = r.accessExpiresAt;
         this.stored = r.stored;
+        this.lastRefreshError = null;
         await this.opts.store.save(r.stored);
         return true;
       } catch (e) {
-        const code = e instanceof PaException ? e.error.code : 'NETWORK';
-        // Network trouble: keep the stored session for a later retry. Auth rejection: drop it.
-        if (code === 'UNAUTHORIZED' || code === 'SESSION_EXPIRED' || code === 'SERVER' || code === 'VALIDATION') {
+        // Only an explicit auth rejection (HTTP 401/403) ends the session. 5xx, network errors,
+        // timeouts, rate limits etc. are transient: keep the stored session for a later retry.
+        this.lastRefreshError = e instanceof PaException ? e.error : { code: 'NETWORK', message: 'Network error' };
+        if (isAuthRejection(e)) {
           this.accessToken = null;
           this.accessExpiresAt = undefined;
           this.stored = null;
@@ -103,12 +120,14 @@ export class DefaultSessionManager implements SessionManager {
     this.accessToken = input.accessToken;
     this.accessExpiresAt = input.accessExpiresAt;
     this.stored = input.stored;
+    this.lastRefreshError = null;
     this.lastRefreshAt = this.clock.now();
     await this.opts.store.save(input.stored);
     this.emit();
   }
 
   async clear(): Promise<void> {
+    this.lastRefreshError = null;
     this.accessToken = null;
     this.accessExpiresAt = undefined;
     this.stored = null;
