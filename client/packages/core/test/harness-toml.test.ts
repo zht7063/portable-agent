@@ -52,3 +52,20 @@ describe('mergeOwnedToml', () => {
     expect(tomlKeyParts('model_providers."p.a" . auth')).toEqual(['model_providers', 'p.a', 'auth']);
   });
 });
+
+describe('toml: user comments inside our table (Aegis low)', () => {
+  it('keeps full-line comments from the replaced section above our block, and on removal', async () => {
+    const { mergeOwnedToml } = await import('@pa/core/harness');
+    const src = 'model = "x"\n\n[model_providers.pa]\n# my note about pa\nname = "old"\n# second note\nbase_url = "http://old"\n\n# servers\n[mcp_servers.a]\ncommand = "npx"\n';
+    const out = mergeOwnedToml(src, [{ path: ['model_providers', 'pa'], value: { name: 'Portable Agent', base_url: 'http://h/v1', wire_api: 'responses' } }]);
+    expect(out).toContain('# my note about pa');
+    expect(out).toContain('# second note');
+    expect(out.indexOf('# my note about pa')).toBeLessThan(out.indexOf('[model_providers.pa]'));
+    expect(out).toContain('# servers\n[mcp_servers.a]');
+    expect(out).not.toContain('http://old');
+    const removed = mergeOwnedToml(out, [{ path: ['model_providers', 'pa'], value: undefined }]);
+    expect(removed).toContain('# my note about pa');
+    expect(removed).not.toContain('[model_providers.pa]');
+    expect(removed).toContain('# servers\n[mcp_servers.a]');
+  });
+});

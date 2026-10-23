@@ -81,6 +81,9 @@ function applyOne(lines: string[], e: TomlEdit): string[] {
   let insertAt = -1;
   let skipping = false;
   let cut: string[] = [];
+  // Full-line comments the user wrote inside the sections we replace; kept (above our block) instead of dropped.
+  const kept: string[] = [];
+  const keepComments = (ls: string[]) => { for (const x of ls) if (/^\s*#/.test(x)) kept.push(x.trimStart()); };
   for (const l of lines) {
     const h = headerOf(l);
     if (h) {
@@ -89,16 +92,23 @@ function applyOne(lines: string[], e: TomlEdit): string[] {
         // Comments right above the next header belong to it, not to the section we cut.
         let k = cut.length;
         while (k > 0 && /^\s*(#.*)?$/.test(cut[k - 1]!)) k--;
+        keepComments(cut.slice(0, k));
         out.push(...cut.slice(k));
+        cut = [];
       }
-      if (next) cut = [];
+      if (next) { keepComments(cut); cut = []; }
       skipping = next;
     }
     if (h && skipping && insertAt < 0) insertAt = out.length;
     if (skipping) cut.push(l); else out.push(l);
   }
-  if (e.value === undefined) { while (out.length > 1 && out[out.length - 1] === '' && out[out.length - 2] === '') out.pop(); return out; }
-  const block = renderTable(e.path, e.value);
+  if (skipping) keepComments(cut);
+  if (e.value === undefined) {
+    if (kept.length && insertAt >= 0) out.splice(insertAt, 0, ...kept, ...(out[insertAt]?.trim() ? [''] : []));
+    while (out.length > 1 && out[out.length - 1] === '' && out[out.length - 2] === '') out.pop();
+    return out;
+  }
+  const block = [...kept, ...renderTable(e.path, e.value)];
   if (insertAt < 0) {
     while (out.length && out[out.length - 1] === '') out.pop();
     return [...out, ...(out.length ? [''] : []), ...block, ''];
