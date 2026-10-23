@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ControlledFs, createHarness, nodeFsOps, PiAdapter, piApiKeyValue, piBaseUrl, StateStore, validateProfile, type ExecFn } from '@pa/core/harness';
+import { ControlledFs, createHarness, nodeFsOps, PiAdapter, piApiKeyValue, piBaseUrl, piProviderConfig, StateStore, validateProfile, type ExecFn } from '@pa/core/harness';
 import { findCredentialLeaks, type HarnessProfile } from '@pa/core';
 
 const SECRET = 'sk-' + 'P'.repeat(40);
@@ -33,12 +33,14 @@ describe('pi adapter: values', () => {
     expect(() => piApiKeyValue(profile({ keyMode: 'plaintext' }), '/x', 'linux')).toThrow(/Plaintext/);
     expect(() => piApiKeyValue(profile(), 'rel/pa-key', 'linux')).toThrow(/absolute/);
   });
-  it('base URL: /v1 for openai-completions, bare origin for anthropic-messages; rejects creds/query', () => {
-    expect(piBaseUrl('http://h:3000', 'openai-completions')).toBe('http://h:3000/v1');
-    expect(piBaseUrl('http://h:3000/v1/', 'openai-completions')).toBe('http://h:3000/v1');
-    expect(piBaseUrl('http://h:3000/v1', 'anthropic-messages')).toBe('http://h:3000');
-    expect(() => piBaseUrl('http://u:p@h', 'openai-completions')).toThrow();
-    expect(() => piBaseUrl('ftp://h', 'openai-completions')).toThrow();
+  it('base URL: /v1 for openai-completions; rejects creds/query; anthropic-messages is hidden', () => {
+    expect(piBaseUrl('http://h:3000')).toBe('http://h:3000/v1');
+    expect(piBaseUrl('http://h:3000/v1/')).toBe('http://h:3000/v1');
+    expect(() => piBaseUrl('http://u:p@h')).toThrow();
+    expect(() => piBaseUrl('ftp://h')).toThrow();
+    const hidden = { pi: { api: 'anthropic-messages' } } as unknown as Partial<HarnessProfile>;
+    expect(() => validateProfile(profile(hidden))).toThrow(/pi api/);
+    expect(() => piProviderConfig(profile(hidden), '/x', 'linux')).toThrow(/Unsupported Pi api/);
   });
   it('validateProfile drops unknown fields (a smuggled key never reaches state)', () => {
     const p = validateProfile({ ...profile(), secret: SECRET } as unknown as HarnessProfile);

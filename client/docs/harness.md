@@ -1,4 +1,4 @@
-# Harness infrastructure (H0)
+# Harness infrastructure (H0–H2)
 
 ## Layers
 - `@pa/core/contract/harness` — adapter contract, DTOs (no credential fields; diff entries use `setting`).
@@ -14,7 +14,7 @@
 Owned settings (checked against the pi docs and tested against pi 1.4.0, `@earendil-works/pi-coding-agent`, MIT):
 - `<PI_CODING_AGENT_DIR or ~/.pi/agent>/models.json`: `providers.<providerId>` (default `pa`), the whole object:
   `{ baseUrl: "<server>/v1", api: "openai-completions", apiKey, models: [{ id, reasoning? }] }`.
-  - With `api: "anthropic-messages"`, baseUrl is the bare server origin (not verified live yet).
+  - Only `api: "openai-completions"` is offered. `anthropic-messages` is hidden (rejected by validation) until verified against real Pi.
 - `settings.json`: `defaultProvider` and `defaultModel` (skipped when `pi.setDefault === false`). The user's previous values are stored in state and restored by detach.
 - `apiKey`:
   - command mode: `!'<abs pa-key path>' <profileId> pi` (shell-quoted). Pi runs it for each request and does not cache it.
@@ -30,6 +30,32 @@ Owned settings (checked against the pi docs and tested against pi 1.4.0, `@earen
 - Apply re-plans from the stored profile. The plan passed in is trusted only for its fingerprints, so a stale plan is rejected.
 - In command mode, desktop provisions the keychain entry before writing. With no keychain it refuses, and the user switches to env mode.
 - Opt-in offline E2E: `PA_HARNESS_E2E=1 PI_BIN=<pi> npx vitest run packages/core/test/harness-pi-e2e.test.ts`. It uses a fake local server, never rain.
+
+## Claude Code adapter (H2)
+
+Field names verified against code.claude.com/docs (settings reference, env vars, managed settings), 2026-10, and
+exercised offline against Claude Code 2.1.309 (`harness-claude-e2e.test.ts`, opt-in).
+
+- File: `$CLAUDE_CONFIG_DIR/settings.json` (default `~/.claude/settings.json`). Strict JSON for Claude Code; we merge
+  format-preservingly and never touch `~/.claude.json`.
+- Owned settings:
+  - `apiKeyHelper`: command mode `'<pa-key>' <profile> claude`; env mode `printf '%s' "$PA_API_KEY"` (Windows:
+    `echo %VAR%`, unverified). Claude Code runs it via `/bin/sh` and sends stdout as **both** `X-Api-Key` and
+    `Authorization: Bearer` (confirmed). Cached 5 min / re-run on 401/403.
+  - `env.ANTHROPIC_BASE_URL`: server origin without `/v1` (Claude Code calls `POST /v1/messages?beta=true`).
+  - `env.ANTHROPIC_MODEL` = `models.main` (skip with `claude.setModel: false`).
+  - `env.ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` = opus/sonnet or main; `env.ANTHROPIC_DEFAULT_HAIKU_MODEL`
+    = haiku, else small, else main. (`ANTHROPIC_SMALL_FAST_MODEL` is deprecated and not written.)
+- Never written: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` (no plaintext mode). If either is set in the shell or in
+  `settings.json` `env` (presence only, value never shown), the plan warns: they override `apiKeyHelper`.
+- Collisions (file not written by us before): an existing different `apiKeyHelper` or `env.ANTHROPIC_BASE_URL`.
+  Previous values of the env keys are remembered for detach; a previous `apiKeyHelper` is **not** stored (it may embed
+  a credential), so detach removes it.
+- Read-only notes/warnings: managed settings (`/etc/claude-code/managed-settings.json` and `managed-settings.d/`,
+  macOS `/Library/Application Support/ClaudeCode/`, Windows `C:\Program Files\ClaudeCode\`), project
+  `.claude/settings.json` / `.claude/settings.local.json` in the cwd, and shell `ANTHROPIC_BASE_URL`/`ANTHROPIC_MODEL`
+  differing from ours.
+- Keychain account: `<profile>/claude`. Desktop provisions it before writing; the CLI requires it to exist.
 
 ## Linux runtime dependency
 `secret-tool` (Debian/Ubuntu package `libsecret-tools`) and a running Secret Service (GNOME Keyring or KWallet) are needed for command key mode on Linux. Without them the client falls back to env key mode.

@@ -32,7 +32,7 @@ describe('desktop harness IPC skeleton', () => {
     const r = await dispatch(handlers, 'harness:detect', {});
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.data.registered).toEqual(['pi']);
+      expect(r.data.registered).toEqual(['pi', 'claude']);
       expect(r.data.harnesses.map((h) => h.configDir)).toEqual([join(home, '.pi', 'agent'), join(home, '.claude'), join(home, '.codex')]);
     }
   });
@@ -41,7 +41,7 @@ describe('desktop harness IPC skeleton', () => {
     const plan: Plan = { id: 'pi', profileId: 'p', createdAt: '', baseFingerprints: {}, changes: [], conflicts: [], warnings: [], externalUnownedChange: [] };
     expect(await dispatch(handlers, 'harness:apply', { id: 'pi', plan, confirm: false } as never)).toMatchObject({ ok: false, error: { code: 'VALIDATION', message: 'This action requires explicit confirmation' } });
     expect(await dispatch(handlers, 'harness:rollback', { id: 'pi', target: 'last' } as never)).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
-    expect(await dispatch(handlers, 'harness:apply', { id: 'claude', plan: { ...plan, id: 'claude' }, confirm: true })).toMatchObject({ ok: false, error: { code: 'NOT_IMPLEMENTED' } });
+    expect(await dispatch(handlers, 'harness:apply', { id: 'codex', plan: { ...plan, id: 'codex' }, confirm: true })).toMatchObject({ ok: false, error: { code: 'NOT_IMPLEMENTED' } });
     expect(await dispatch(handlers, 'harness:apply', { id: 'pi', plan, confirm: true })).toMatchObject({ ok: false, error: { code: 'VALIDATION', message: 'Unknown harness profile' } });
     expect(await dispatch(handlers, 'keys:reveal', { id: 7 } as never)).toMatchObject({ ok: false, error: { message: 'Reveal requires explicit confirmation' } });
   });
@@ -116,5 +116,25 @@ describe('Pi via IPC (H1)', () => {
     if (!p2.ok) throw new Error('plan failed');
     expect((await dispatch(s.handlers, 'harness:apply', { id: 'pi', plan: p2.data, confirm: true })).ok).toBe(true);
     expect(JSON.parse(await readFile(join(s.home, '.pi', 'agent', 'models.json'), 'utf8')).providers.pa.apiKey).toBe('$PA_API_KEY');
+  });
+
+  it('Claude Code (H2): apply provisions default/claude, settings.json has apiKeyHelper only (no key); detach revokes', async () => {
+    const kr = new MemoryKeyring();
+    const s = setupPi(kr);
+    await dispatch(s.handlers, 'harness:profile:upsert', prof);
+    const plan = await dispatch(s.handlers, 'harness:plan', { id: 'claude', profileId: 'default' });
+    if (!plan.ok) throw new Error('plan failed');
+    expect(findCredentialLeaks(plan.data)).toEqual([]);
+    const r = await dispatch(s.handlers, 'harness:apply', { id: 'claude', plan: plan.data, confirm: true });
+    expect(r.ok).toBe(true);
+    expect(await kr.get('default/claude')).toBe(SECRET);
+    expect(await kr.get('default/pi')).toBeNull();
+    const j = JSON.parse(await readFile(join(s.home, '.claude', 'settings.json'), 'utf8'));
+    expect(j.apiKeyHelper).toBe(`'${join(s.dataDir, 'bin', 'pa-key')}' default claude`);
+    expect(j.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:9');
+    for (const f of [...(await filesUnder(s.home)), ...(await filesUnder(s.dataDir))]) expect(await readFile(f, 'utf8')).not.toContain(SECRET);
+    expect((await dispatch(s.handlers, 'harness:rollback', { id: 'claude', target: 'detach', confirm: true })).ok).toBe(true);
+    expect(await kr.get('default/claude')).toBeNull();
+    expect(JSON.parse(await readFile(join(s.home, '.claude', 'settings.json'), 'utf8')).apiKeyHelper).toBeUndefined();
   });
 });

@@ -58,3 +58,12 @@ describe('format-preserving JSON merge', () => {
     expect(out).not.toContain('"c"');
   });
 });
+
+describe('mergeOwnedJson: nested parents', () => {
+  it('creates a missing parent object for several nested edits', async () => {
+    const { mergeOwnedJson } = await import('@pa/core/harness');
+    const out = mergeOwnedJson('{\n  "theme": "light"\n}\n', [{ path: ['a'], value: 'x' }, { path: ['env', 'A'], value: '1' }, { path: ['env', 'B'], value: '2' }]);
+    expect(JSON.parse(out)).toEqual({ theme: 'light', a: 'x', env: { A: '1', B: '2' } });
+    expect(JSON.parse(mergeOwnedJson('', [{ path: ['env', 'A'], value: '1' }]))).toEqual({ env: { A: '1' } });
+  });
+});

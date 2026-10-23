@@ -64,3 +64,28 @@ describe('HarnessPanel (Pi)', () => {
     await waitFor(() => expect(pa.calls('harness:rollback')[0]).toEqual({ id: 'pi', target: 'detach', confirm: true }));
   });
 });
+
+describe('HarnessPanel (Claude Code)', () => {
+  it('targets claude and keeps the other harness options of the shared profile', async () => {
+    const pa = mockPa({
+      'harness:detect': () => ({ harnesses: [...det.harnesses, { id: 'claude', installed: true, version: '2.1.250', configDir: '/tmp/h/.claude', files: [], notes: ['Project .claude/settings.json found'] }], registered: ['pi', 'claude'] }),
+      'harness:keyring:status': () => ({ available: true, backend: 'memory', entries: [] }),
+      'harness:profile:list': () => ({ profiles: [{ id: 'default', serverUrl: 'http://h:3000', keyId: 3, keyMode: 'command', models: { main: 'deepseek-flash' }, pi: { setDefault: false } }] }),
+      'harness:profile:upsert': (r: unknown) => r,
+      'models:list': () => [{ id: 'deepseek-flash' }, { id: 'deepseek-v4-pro' }],
+      'harness:plan': () => ({ ...plan(), id: 'claude', changes: [{ file: '/tmp/h/.claude/settings.json', setting: 'apiKeyHelper', kind: 'create', before: null, after: "'/x/pa-key' default claude" }] }),
+      'harness:apply': () => ({ id: 'claude', written: [], warnings: [] }),
+      'harness:rollback': () => ({ id: 'claude', written: [], warnings: [] }),
+    });
+    render(<HarnessPanel keyId={3} serverUrl="http://h:3000" harness="claude" />);
+    expect(await screen.findByText('Harness · Claude Code')).toBeTruthy();
+    expect(await screen.findByText(/已安装 2.1.250/)).toBeTruthy();
+    expect(screen.getByText(/Project .claude/)).toBeTruthy();
+    await userEvent.selectOptions(screen.getByLabelText('主模型'), 'deepseek-v4-pro');
+    await userEvent.selectOptions(screen.getByLabelText('备选模型'), 'deepseek-flash');
+    await userEvent.click(screen.getByText('预览变更'));
+    expect(pa.calls('harness:profile:upsert')[0]).toMatchObject({ models: { main: 'deepseek-v4-pro', small: 'deepseek-flash' }, pi: { setDefault: false } });
+    await waitFor(() => expect(pa.calls('harness:plan')[0]).toEqual({ id: 'claude', profileId: 'default' }));
+    expect(await screen.findByText('apiKeyHelper')).toBeTruthy();
+  });
+});

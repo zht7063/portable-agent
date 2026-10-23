@@ -21,7 +21,9 @@ export * from './exec.js';
 export * from './paths.js';
 export { maskValue } from './mask.js';
 export { detectBasic } from './detect.js';
+export * from './adapters/base.js';
 export * from './adapters/pi.js';
+export * from './adapters/claude.js';
 
 export interface HarnessDeps {
   fs: ControlledFs;
@@ -53,9 +55,14 @@ export function validateProfile(p: HarnessProfile): HarnessProfile {
   const pi = p.pi;
   if (pi !== undefined) {
     v(typeof pi === 'object' && pi !== null, 'Invalid pi options');
-    v(pi.api === undefined || pi.api === 'openai-completions' || pi.api === 'anthropic-messages', 'Invalid pi api');
+    v(pi.api === undefined || pi.api === 'openai-completions', 'Invalid pi api (only openai-completions is available)');
     v(strList(pi.models) && strList(pi.reasoning), 'Invalid pi models');
     v(pi.setDefault === undefined || typeof pi.setDefault === 'boolean', 'Invalid pi setDefault');
+  }
+  const cl = p.claude;
+  if (cl !== undefined) {
+    v(typeof cl === 'object' && cl !== null, 'Invalid claude options');
+    v(cl.setModel === undefined || typeof cl.setModel === 'boolean', 'Invalid claude setModel');
   }
   const m = p.models;
   const models = Object.fromEntries(Object.entries({ main: m.main, small: m.small, opus: m.opus, sonnet: m.sonnet, haiku: m.haiku, codex: m.codex }).filter(([, x]) => x !== undefined)) as unknown as HarnessProfile['models'];
@@ -64,6 +71,7 @@ export function validateProfile(p: HarnessProfile): HarnessProfile {
     ...(p.providerId !== undefined ? { providerId: p.providerId } : {}),
     ...(p.envVar !== undefined ? { envVar: p.envVar } : {}),
     ...(pi ? { pi: { ...(pi.api ? { api: pi.api } : {}), ...(pi.models ? { models: [...pi.models] } : {}), ...(pi.reasoning ? { reasoning: [...pi.reasoning] } : {}), ...(pi.setDefault !== undefined ? { setDefault: pi.setDefault } : {}) } } : {}),
+    ...(cl ? { claude: { ...(cl.setModel !== undefined ? { setModel: cl.setModel } : {}) } } : {}),
   };
 }
 

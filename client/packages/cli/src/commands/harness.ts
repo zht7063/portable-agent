@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { HARNESS_IDS, isHarnessId, type HarnessId } from '@pa/core';
 import { readFile } from 'node:fs/promises';
-import { ControlledFs, createHarness, nodeExec, nodeFsOps, PiAdapter, StateStore, type ExecFn } from '@pa/core/harness';
+import { ClaudeAdapter, ControlledFs, createHarness, nodeExec, nodeFsOps, PiAdapter, StateStore, type ExecFn } from '@pa/core/harness';
 import type { HarnessProfile, RollbackTarget } from '@pa/core';
 import { accountFor, createKeyring, keyringStatus, type Keyring } from '@pa/key-helper';
 
@@ -47,17 +47,19 @@ export async function runHarness(argv: string[], d: HarnessCliDeps): Promise<num
   const helperPath = helperArg ?? join(dataDir, 'bin', platform === 'win32' ? 'pa-key.cmd' : 'pa-key');
   const henv = { home, env: { ...env, HOME: home }, platform };
   const exec = d.exec ?? nodeExec;
-  const pi = new PiAdapter({
+  const common = (h: HarnessId) => ({
     fs, state, env: henv, exec, helperPath, cwd: process.cwd(),
     // The CLI cannot provision keys (no desktop session); command mode needs the entry to exist already.
-    beforeWrite: async (p) => {
+    beforeWrite: async (p: { id: string; keyMode: string }) => {
       if (p.keyMode !== 'command') return;
-      const ok = (await keyring.available()).ok && (await keyring.get(accountFor(p.id, 'pi')).catch(() => null)) !== null;
+      const ok = (await keyring.available()).ok && (await keyring.get(accountFor(p.id, h)).catch(() => null)) !== null;
       if (!ok) throw new Error('No keychain entry for this profile; enable it in Portable Agent first or use env key mode');
     },
   });
+  const pi = new PiAdapter(common('pi'));
+  const claude = new ClaudeAdapter(common('claude'));
   const harness = createHarness({
-    fs, state, exec, env: henv, adapters: { pi },
+    fs, state, exec, env: henv, adapters: { pi, claude },
     keyringStatus: async (pid) => keyringStatus(keyring, pid !== undefined ? [pid] : Object.keys((await state.load()).profiles)),
   });
   const sub = args.shift();

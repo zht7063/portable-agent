@@ -86,4 +86,20 @@ describe('pa harness pi (H1)', () => {
     expect(JSON.parse(await readFile(join(home, '.pi', 'agent', 'models.json'), 'utf8'))).toEqual({ providers: {} });
     expect((await r(['profile', 'list'])).outs[0]).toMatchObject({ profiles: [{ id: 'default' }] });
   });
+
+  it('claude (H2): apply needs default/claude in the keychain; writes apiKeyHelper, never the key', async () => {
+    const kr = new MemoryKeyring();
+    const { home, r } = await session(kr);
+    const f = join(home, 'profile.json');
+    await writeFile(f, JSON.stringify(prof));
+    await r(['profile', 'set', f]);
+    await kr.set('default/pi', SECRET);
+    expect((await r(['apply', 'claude', '--profile', 'default', '--yes'])).errs.join()).toMatch(/keychain entry/);
+    await kr.set('default/claude', SECRET);
+    expect((await r(['apply', 'claude', '--profile', 'default', '--yes'])).code).toBe(0);
+    const text = await readFile(join(home, '.claude', 'settings.json'), 'utf8');
+    expect(JSON.parse(text).apiKeyHelper).toBe(`'/opt/pa/bin/pa-key' default claude`);
+    expect(text).not.toContain(SECRET);
+    expect((await r(['rollback', 'claude', '--detach', '--yes'])).code).toBe(0);
+  });
 });

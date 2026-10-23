@@ -42,7 +42,8 @@ export function App() {
           <BillingPanel />
           <KeysPanel selected={keyId} onSelect={setKeyId} />
           <ChatPanel keyId={keyId} defaultMaxTokens={config?.defaultMaxTokens ?? 2048} />
-          <HarnessPanel keyId={keyId} serverUrl={config?.serverUrl} />
+          <HarnessPanel keyId={keyId} serverUrl={config?.serverUrl} harness="pi" />
+          <HarnessPanel keyId={keyId} serverUrl={config?.serverUrl} harness="claude" />
         </>
       )}
     </main>

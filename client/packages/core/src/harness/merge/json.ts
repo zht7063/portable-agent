@@ -75,6 +75,9 @@ function applyOne(text: string, e: JsonEdit, fmt: FormattingOptions): string {
   const fallback = () => applyEdits(text, modify(text, e.path, e.value, { formattingOptions: fmt }));
   const raw = modify(text, e.path, e.value, {});
   if (raw.length !== 1) return fallback();
+  // A missing parent means jsonc inserts a whole nested object; let it format that itself.
+  const parent = e.path.length > 1 ? getPath(parseJsonc(text), e.path.slice(0, -1)) : {};
+  if (parent === null || typeof parent !== 'object') return fallback();
   const ed = raw[0]!;
   const ls = lineStart(text, ed.offset);
   const indent = /^[ \t]*/.exec(text.slice(ls))![0];

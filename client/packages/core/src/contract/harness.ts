@@ -29,9 +29,11 @@ export interface HarnessProfile {
   /** Env var name referenced in keyMode "env" (default PA_API_KEY). */
   envVar?: string;
   pi?: PiOptions;
+  claude?: ClaudeOptions;
 }
 
-export type PiApi = 'openai-completions' | 'anthropic-messages';
+/** 'anthropic-messages' is intentionally not offered until verified against real Pi. */
+export type PiApi = 'openai-completions';
 export interface PiOptions {
   /** Default openai-completions (/v1/chat/completions). */
   api?: PiApi;
@@ -41,6 +43,11 @@ export interface PiOptions {
   reasoning?: string[];
   /** Write settings.json defaultProvider/defaultModel (default true). */
   setDefault?: boolean;
+}
+
+export interface ClaudeOptions {
+  /** Write env.ANTHROPIC_MODEL = models.main (default true). When false only the opus/sonnet/haiku aliases are mapped. */
+  setModel?: boolean;
 }
 
 export interface FileFingerprint { sha256: string; mtimeMs: number; size: number }

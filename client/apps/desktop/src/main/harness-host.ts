@@ -1,5 +1,5 @@
-import { HARNESS_IDS, PaException, type Core, type HarnessId, type KeyringStatus } from '@pa/core';
-import { ControlledFs, createHarness, nodeExec, nodeFsOps, PiAdapter, StateStore, type Harness } from '@pa/core/harness';
+import { HARNESS_IDS, PaException, type Core, type HarnessId, type HarnessProfile, type KeyringStatus } from '@pa/core';
+import { ClaudeAdapter, ControlledFs, createHarness, nodeExec, nodeFsOps, PiAdapter, StateStore, type Harness } from '@pa/core/harness';
 import { accountFor, keyringStatus, type Keyring } from '@pa/key-helper';
 
 export interface HarnessHostOptions {
@@ -35,17 +35,19 @@ export class HarnessHost {
     this.helperPath = o.helperPath;
     const env = { home: o.home, env: o.env, platform: o.platform };
     const exec = o.exec ?? nodeExec;
-    const pi = new PiAdapter({
+    const common = (h: HarnessId) => ({
       fs, state: this.state, env, exec, helperPath: o.helperPath, ...(o.cwd ? { cwd: o.cwd } : {}),
-      beforeWrite: async (p) => {
+      beforeWrite: async (p: HarnessProfile) => {
         if (p.keyMode !== 'command') return;
         if (!o.getCore) throw new PaException({ code: 'VALIDATION', message: 'Cannot provision the key here' });
-        await this.provisionKey(o.getCore(), p.id, 'pi', p.keyId);
+        await this.provisionKey(o.getCore(), p.id, h, p.keyId);
       },
-      afterDetach: async (ids) => { for (const id of ids) await this.revokeKey(id, 'pi').catch(() => {}); },
+      afterDetach: async (ids: string[]) => { for (const id of ids) await this.revokeKey(id, h).catch(() => {}); },
     });
+    const pi = new PiAdapter(common('pi'));
+    const claude = new ClaudeAdapter(common('claude'));
     this.harness = createHarness({
-      fs, state: this.state, exec, env, adapters: { pi },
+      fs, state: this.state, exec, env, adapters: { pi, claude },
       keyringStatus: (profileId) => this.keyringStatus(profileId),
     });
   }
