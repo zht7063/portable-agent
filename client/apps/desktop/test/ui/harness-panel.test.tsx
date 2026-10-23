@@ -89,3 +89,30 @@ describe('HarnessPanel (Claude Code)', () => {
     expect(await screen.findByText('apiKeyHelper')).toBeTruthy();
   });
 });
+
+describe('HarnessPanel (Codex)', () => {
+  it('shows "server channel not ready" until probed; probe result shown; model goes to models.codex', async () => {
+    let state = 'model-missing';
+    const pa = mockPa({
+      'harness:detect': () => ({ harnesses: [{ id: 'codex', installed: true, version: '0.164.0', configDir: '/tmp/h/.codex', files: [], notes: [] }], registered: ['pi', 'claude', 'codex'] }),
+      'harness:keyring:status': () => ({ available: true, backend: 'memory', entries: [] }),
+      'harness:profile:list': () => ({ profiles: [{ id: 'default', serverUrl: 'http://h:3000', keyId: 3, keyMode: 'command', models: { main: 'deepseek-flash', small: 'x' } }] }),
+      'harness:profile:upsert': (r: unknown) => r,
+      'harness:channel:probe': () => ({ state, model: 'deepseek-v4-pro', checkedAt: 'now' }),
+      'models:list': () => [{ id: 'deepseek-flash' }, { id: 'deepseek-v4-pro' }],
+      'harness:plan': () => ({ ...plan(), id: 'codex' }),
+    });
+    render(<HarnessPanel keyId={3} serverUrl="http://h:3000" harness="codex" />);
+    expect(await screen.findByText(/服务端渠道未就绪（未探测）/)).toBeTruthy();
+    expect(screen.queryByLabelText('备选模型')).toBeNull();
+    await userEvent.click(screen.getByText('探测服务端渠道'));
+    expect(await screen.findByText(/没有该模型/)).toBeTruthy();
+    state = 'model-listed';
+    await userEvent.click(screen.getByText('探测服务端渠道'));
+    expect(await screen.findByText(/Responses 通道未经 live 验证/)).toBeTruthy();
+    await userEvent.selectOptions(screen.getByLabelText('主模型'), 'deepseek-v4-pro');
+    await userEvent.click(screen.getByText('预览变更'));
+    expect(pa.calls('harness:profile:upsert')[0]).toMatchObject({ models: { main: 'deepseek-flash', small: 'x', codex: 'deepseek-v4-pro' } });
+    await waitFor(() => expect(pa.calls('harness:plan')[0]).toEqual({ id: 'codex', profileId: 'default' }));
+  });
+});

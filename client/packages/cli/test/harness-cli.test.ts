@@ -38,9 +38,9 @@ describe('pa harness (dev CLI)', () => {
     expect((await run(['key-check', 'default'], k)).code).toBe(1);
     expect((await run(['key-check', 'default'], new NoKeyring('no dbus'))).outs[0]).toMatchObject({ available: false, fallback: 'env' });
   });
-  it('apply/rollback need --yes; unregistered adapters are NOT_IMPLEMENTED; relative --home rejected', async () => {
+  it('apply/rollback need --yes; unknown harness rejected; relative --home rejected', async () => {
     expect((await run(['apply', 'pi'])).errs[0]).toMatch(/--yes/);
-    await expect(run(['rollback', 'codex', '--yes'])).rejects.toMatchObject({ error: { code: 'NOT_IMPLEMENTED' } });
+    await expect(run(['rollback', 'nope', '--yes'])).rejects.toThrow(/harness must be one of/);
     const errs: string[] = [];
     expect(await runHarness(['detect', '--home', 'rel'], { out: () => {}, err: (s) => errs.push(s) })).toBe(1);
   });
@@ -101,5 +101,21 @@ describe('pa harness pi (H1)', () => {
     expect(JSON.parse(text).apiKeyHelper).toBe(`'/opt/pa/bin/pa-key' default claude`);
     expect(text).not.toContain(SECRET);
     expect((await r(['rollback', 'claude', '--detach', '--yes'])).code).toBe(0);
+  });
+
+  it('codex (H3): apply writes [model_providers.pa.auth] with the helper path; never the key', async () => {
+    const kr = new MemoryKeyring();
+    const { home, r } = await session(kr);
+    const f = join(home, 'profile.json');
+    await writeFile(f, JSON.stringify(prof));
+    await r(['profile', 'set', f]);
+    expect((await r(['apply', 'codex', '--profile', 'default', '--yes'])).errs.join()).toMatch(/keychain entry/);
+    await kr.set('default/codex', SECRET);
+    expect((await r(['apply', 'codex', '--profile', 'default', '--yes'])).code).toBe(0);
+    const text = await readFile(join(home, '.codex', 'config.toml'), 'utf8');
+    expect(text).toContain('command = "/opt/pa/bin/pa-key"');
+    expect(text).toContain('args = [ "default", "codex" ]');
+    expect(text).not.toContain(SECRET);
+    expect((await r(['rollback', 'codex', '--detach', '--yes'])).code).toBe(0);
   });
 });

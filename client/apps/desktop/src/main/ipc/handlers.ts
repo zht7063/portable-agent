@@ -74,6 +74,22 @@ export function createHandlers({ getCore, getConfig, setConfig, copyToClipboard,
     'harness:keyring:status': (r) => harness.keyringStatus(r?.profileId),
     'harness:profile:list': async () => ({ profiles: await harness.listProfiles() }),
     'harness:profile:upsert': (r) => harness.upsertProfile(r),
+    'harness:channel:probe': async (r) => {
+      const checkedAt = new Date().toISOString();
+      const p = (await harness.listProfiles()).find((x) => x.id === r?.profileId);
+      if (!p) return { state: 'no-profile' as const, checkedAt };
+      const model = p.models.codex ?? p.models.main;
+      const origin = (u: string) => { try { return new URL(u).origin; } catch { return ''; } };
+      if (origin(p.serverUrl) !== origin(getConfig().serverUrl)) return { state: 'unreachable' as const, model, checkedAt, detail: 'Profile server differs from the configured server' };
+      const core = getCore();
+      let ids: string[];
+      try {
+        ids = (await core.models.listWithKey(await core.keys.secret(p.keyId))).map((m) => m.id);
+      } catch {
+        return { state: 'unreachable' as const, model, checkedAt, detail: 'GET /v1/models failed' };
+      }
+      return { state: ids.includes(model) ? ('model-listed' as const) : ('model-missing' as const), model, checkedAt };
+    },
   };
 }
 

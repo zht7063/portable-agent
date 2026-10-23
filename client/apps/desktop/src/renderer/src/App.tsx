@@ -44,6 +44,7 @@ export function App() {
           <ChatPanel keyId={keyId} defaultMaxTokens={config?.defaultMaxTokens ?? 2048} />
           <HarnessPanel keyId={keyId} serverUrl={config?.serverUrl} harness="pi" />
           <HarnessPanel keyId={keyId} serverUrl={config?.serverUrl} harness="claude" />
+          <HarnessPanel keyId={keyId} serverUrl={config?.serverUrl} harness="codex" />
         </>
       )}
     </main>

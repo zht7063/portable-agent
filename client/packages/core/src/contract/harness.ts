@@ -30,6 +30,7 @@ export interface HarnessProfile {
   envVar?: string;
   pi?: PiOptions;
   claude?: ClaudeOptions;
+  codex?: CodexOptions;
 }
 
 /** 'anthropic-messages' is intentionally not offered until verified against real Pi. */
@@ -48,6 +49,11 @@ export interface PiOptions {
 export interface ClaudeOptions {
   /** Write env.ANTHROPIC_MODEL = models.main (default true). When false only the opus/sonnet/haiku aliases are mapped. */
   setModel?: boolean;
+}
+
+export interface CodexOptions {
+  /** Write top-level model / model_provider (default true). When false only [model_providers.<id>] is written. */
+  setDefault?: boolean;
 }
 
 export interface FileFingerprint { sha256: string; mtimeMs: number; size: number }
@@ -136,3 +142,11 @@ export interface HarnessApplyReq { id: HarnessId; plan: Plan; acknowledge?: Conf
 export interface HarnessRollbackReq { id: HarnessId; target: RollbackTarget; confirm: true }
 export interface HarnessKeyringStatusReq { profileId?: string }
 export interface HarnessProfileListRes { profiles: HarnessProfile[] }
+
+export interface HarnessChannelProbeReq { profileId: string }
+/**
+ * Codex needs a Responses channel on the server (configured by the server operator, not by this app).
+ * "model-listed" only means the model appears in GET /v1/models; the Responses path itself is not verified by the probe.
+ */
+export type HarnessChannelState = 'not-checked' | 'model-listed' | 'model-missing' | 'unreachable' | 'no-profile';
+export interface HarnessChannelStatus { state: HarnessChannelState; model?: string; checkedAt: string; detail?: string }

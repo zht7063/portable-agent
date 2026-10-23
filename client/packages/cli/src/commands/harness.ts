@@ -2,7 +2,7 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { HARNESS_IDS, isHarnessId, type HarnessId } from '@pa/core';
 import { readFile } from 'node:fs/promises';
-import { ClaudeAdapter, ControlledFs, createHarness, nodeExec, nodeFsOps, PiAdapter, StateStore, type ExecFn } from '@pa/core/harness';
+import { ClaudeAdapter, CodexAdapter, ControlledFs, createHarness, nodeExec, nodeFsOps, PiAdapter, StateStore, type ExecFn } from '@pa/core/harness';
 import type { HarnessProfile, RollbackTarget } from '@pa/core';
 import { accountFor, createKeyring, keyringStatus, type Keyring } from '@pa/key-helper';
 
@@ -58,8 +58,9 @@ export async function runHarness(argv: string[], d: HarnessCliDeps): Promise<num
   });
   const pi = new PiAdapter(common('pi'));
   const claude = new ClaudeAdapter(common('claude'));
+  const codex = new CodexAdapter(common('codex'));
   const harness = createHarness({
-    fs, state, exec, env: henv, adapters: { pi, claude },
+    fs, state, exec, env: henv, adapters: { pi, claude, codex },
     keyringStatus: async (pid) => keyringStatus(keyring, pid !== undefined ? [pid] : Object.keys((await state.load()).profiles)),
   });
   const sub = args.shift();

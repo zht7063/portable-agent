@@ -70,10 +70,14 @@ export abstract class JsonHarnessAdapter implements HarnessAdapter {
     try { return (await this.o.fs.ops.stat(await this.o.fs.assertAllowed(p))) !== null; } catch { return false; }
   }
 
+  /** File format hooks (JSON/JSONC by default; Codex overrides with TOML). */
+  protected parseText(text: string): Record<string, unknown> { return parseJsonc(text) as Record<string, unknown>; }
+  protected mergeText(text: string, edits: JsonEdit[]): string { return mergeOwnedJson(text, edits); }
+
   protected async load(path: string) {
     const r = await this.o.fs.readText(path);
     const text = r?.text ?? '';
-    return { text, fp: r?.fingerprint ?? null, root: parseJsonc(text) as Record<string, unknown> };
+    return { text, fp: r?.fingerprint ?? null, root: this.parseText(text) };
   }
 
   async read(): Promise<LiveSnapshot> {
@@ -181,7 +185,7 @@ export abstract class JsonHarnessAdapter implements HarnessAdapter {
     for (const f of todo) {
       await this.o.fs.backupFirstWrite(this.id, f.path);
       const edits: JsonEdit[] = [...f.desired].map(([s, v]) => ({ path: undot(s), value: v }));
-      const out = mergeOwnedJson(f.text, edits);
+      const out = this.mergeText(f.text, edits);
       const fp = await this.o.fs.atomicWrite(f.path, out, { expect: f.fp });
       written.push(f.path);
       const keep = [...f.desired].filter(([, v]) => v !== undefined).map(([s]) => s);
@@ -189,7 +193,7 @@ export abstract class JsonHarnessAdapter implements HarnessAdapter {
       const remember = keep.filter((s) => this.rememberOriginal(f.path, s));
       const original = f.entry?.original ?? (remember.length ? ownedValues(f.root, remember) : undefined);
       newEntries[f.path] = {
-        harness: this.id, lastWritten: fp, ownedValuesHash: hashOwnedValues(ownedValues(parseJsonc(out), keep)),
+        harness: this.id, lastWritten: fp, ownedValuesHash: hashOwnedValues(ownedValues(this.parseText(out), keep)),
         ownedSettings: keep, ...(original ? { original } : {}), updatedAt: this.now(),
       };
     }
@@ -254,7 +258,7 @@ export abstract class JsonHarnessAdapter implements HarnessAdapter {
     const written: string[] = [];
     for (const l of loaded) {
       const edits = l.e.ownedSettings.map((s) => ({ path: undot(s), value: l.e.original?.[s] ?? undefined }));
-      const out = mergeOwnedJson(l.text, edits);
+      const out = this.mergeText(l.text, edits);
       if (out !== l.text) { await this.o.fs.atomicWrite(l.path, out, { expect: l.fp }); written.push(l.path); }
     }
     await this.o.state.update((s) => { for (const p of mine) delete s.files[p]; s.history.push(hist); });

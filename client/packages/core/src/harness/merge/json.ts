@@ -34,7 +34,7 @@ function detectFormatting(text: string): FormattingOptions {
 }
 
 /** Deep copy with all owned paths deleted (for "non-owned parts unchanged" check). */
-function stripPaths(root: unknown, paths: JSONPath[]): unknown {
+export function stripPaths(root: unknown, paths: JSONPath[]): unknown {
   const copy = JSON.parse(JSON.stringify(root)) as unknown;
   for (const p of paths) {
     const parent = getPath(copy, p.slice(0, -1));
@@ -44,7 +44,7 @@ function stripPaths(root: unknown, paths: JSONPath[]): unknown {
 }
 
 /** Drops objects left empty by owned-path deletion along the given paths (both sides, so comparison is fair). */
-function pruneEmptyParents(root: unknown, paths: JSONPath[]): unknown {
+export function pruneEmptyParents(root: unknown, paths: JSONPath[]): unknown {
   for (const p of paths) {
     for (let i = p.length - 1; i > 0; i--) {
       const parent = getPath(root, p.slice(0, i - 1));

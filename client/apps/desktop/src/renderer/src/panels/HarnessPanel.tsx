@@ -1,17 +1,25 @@
 import { useEffect, useState } from 'react';
-import type { ConflictResolution, Detection, HarnessId, HarnessProfile, KeyMode, KeyringStatus, ModelInfo, Plan } from '@pa/core/contract';
+import type { ConflictResolution, Detection, HarnessChannelStatus, HarnessId, HarnessProfile, KeyMode, KeyringStatus, ModelInfo, Plan } from '@pa/core/contract';
 import { call, errText } from '../api';
 import { Err, Section } from './ui';
 
 const KIND: Record<string, string> = { create: '新增', modify: '修改', remove: '移除', unchanged: '不变' };
 
-const META: Record<'pi' | 'claude', { title: string; bin: string; small: string }> = {
+const META: Record<HarnessId, { title: string; bin: string; small: string | null }> = {
   pi: { title: 'Pi', bin: 'pi', small: '备选' },
   claude: { title: 'Claude Code', bin: 'claude', small: 'Haiku（后台）' },
+  codex: { title: 'Codex', bin: 'codex', small: null },
+};
+const CHANNEL: Record<HarnessChannelStatus['state'], string> = {
+  'not-checked': '服务端渠道未就绪（未探测）',
+  'no-profile': '服务端渠道未就绪（先预览一次以保存配置）',
+  unreachable: '服务端渠道未就绪（无法探测）',
+  'model-missing': '服务端渠道未就绪（/v1/models 中没有该模型）',
+  'model-listed': '模型已上架（Responses 通道未经 live 验证）',
 };
 
 /** Harness card (H1 Pi, H2 Claude Code). Only masked values ever reach this component; keys stay in main. */
-export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: number; serverUrl?: string; harness?: Extract<HarnessId, 'pi' | 'claude'> }) {
+export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: number; serverUrl?: string; harness?: HarnessId }) {
   const meta = META[harness];
   const [det, setDet] = useState<Detection | null>(null);
   const [kr, setKr] = useState<KeyringStatus | null>(null);
@@ -23,6 +31,8 @@ export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: num
   const [acks, setAcks] = useState<Record<string, ConflictResolution>>({});
   const [msg, setMsg] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [channel, setChannel] = useState<HarnessChannelStatus>({ state: 'not-checked', checkedAt: '' });
+  const isCodex = harness === 'codex';
 
   const run = async (fn: () => Promise<unknown>) => { setMsg(null); setNote(null); try { await fn(); } catch (e) { setMsg(errText(e)); } };
   const loadData = async () => {
@@ -32,7 +42,7 @@ export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: num
     setKr(k);
     if (!k.available) setMode('env');
     const p = (await call('harness:profile:list', {})).profiles.find((x) => x.id === 'default');
-    if (p) { setMain(p.models.main); setSmall(p.models.small ?? ''); setMode(p.keyMode === 'plaintext' ? 'command' : p.keyMode); }
+    if (p) { setMain(isCodex ? (p.models.codex ?? p.models.main) : p.models.main); setSmall(p.models.small ?? ''); setMode(p.keyMode === 'plaintext' ? 'command' : p.keyMode); }
     const m = await call('models:list', {}).catch(() => [] as ModelInfo[]);
     setModels(m);
     if (!p && m[0]) setMain(m[0].id);
@@ -44,7 +54,7 @@ export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: num
     if (keyId === undefined || !serverUrl) throw new Error('请先在 API Keys 中选择一个 key');
     const prev = (await call('harness:profile:list', {})).profiles.find((x) => x.id === 'default');
     // One shared profile: keep the other harness's options, only replace what this card edits.
-    const profile: HarnessProfile = { ...(prev ?? {}), id: 'default', serverUrl, keyId, keyMode: mode, models: { ...(prev?.models ?? {}), main, ...(small ? { small } : { small: undefined }) } };
+    const profile: HarnessProfile = { ...(prev ?? {}), id: 'default', serverUrl, keyId, keyMode: mode, models: isCodex ? { ...(prev?.models ?? {}), main: prev?.models.main ?? main, codex: main } : { ...(prev?.models ?? {}), main, ...(small ? { small } : { small: undefined }) } };
     await call('harness:profile:upsert', profile);
     setAcks({});
     setPlan(await call('harness:plan', { id: harness, profileId: 'default' }));
@@ -62,6 +72,7 @@ export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: num
     if (!window.confirm(`${label}？当前配置会先做快照。`)) return;
     void run(async () => { const r = await call('harness:rollback', { id: harness, target, confirm: true }); setPlan(null); await loadData(); setNote(`${label}完成：${r.written.join(', ') || '无变更'}`); });
   };
+  const probe = () => run(async () => setChannel(await call('harness:channel:probe', { profileId: 'default' })));
   const unresolved = plan?.conflicts.some((c) => !acks[c.id] || acks[c.id] === 'cancel') ?? false;
 
   return (
@@ -71,10 +82,16 @@ export function HarnessPanel({ keyId, serverUrl, harness = 'pi' }: { keyId?: num
         {' '}· 钥匙串 {kr ? (kr.available ? kr.backend : `不可用（使用环境变量模式）`) : '…'}{' '}
         <button onClick={() => void load()}>刷新</button>
       </p>
+      {isCodex && (
+        <p role="status" style={{ color: channel.state === 'model-listed' ? '#047857' : '#b45309' }}>
+          {CHANNEL[channel.state]}{channel.model ? `：${channel.model}` : ''}{' '}
+          <button onClick={() => void probe()}>探测服务端渠道</button>
+        </p>
+      )}
       {det?.notes.map((n) => <p key={n} style={{ color: '#6b7280' }}>{n}</p>)}
       <p>
-        主模型 <select aria-label="主模型" value={main} onChange={(e) => setMain(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}{main && !models.some((m) => m.id === main) && <option value={main}>{main}</option>}</select>{' '}
-        {meta.small} <select aria-label="备选模型" value={small} onChange={(e) => setSmall(e.target.value)}><option value="">（无）</option>{models.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}</select>{' '}
+        {isCodex ? 'Codex 模型' : '主模型'} <select aria-label="主模型" value={main} onChange={(e) => setMain(e.target.value)}>{models.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}{main && !models.some((m) => m.id === main) && <option value={main}>{main}</option>}</select>{' '}
+        {meta.small && <>{meta.small} <select aria-label="备选模型" value={small} onChange={(e) => setSmall(e.target.value)}><option value="">（无）</option>{models.map((m) => <option key={m.id} value={m.id}>{m.id}</option>)}</select>{' '}</>}
         取 key 方式 <select aria-label="取 key 方式" value={mode} onChange={(e) => setMode(e.target.value as KeyMode)}>
           <option value="command" disabled={kr?.available === false}>钥匙串（pa-key）</option>
           <option value="env">环境变量 PA_API_KEY</option>

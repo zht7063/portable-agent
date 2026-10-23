@@ -1,5 +1,5 @@
 import { HARNESS_IDS, PaException, type Core, type HarnessId, type HarnessProfile, type KeyringStatus } from '@pa/core';
-import { ClaudeAdapter, ControlledFs, createHarness, nodeExec, nodeFsOps, PiAdapter, StateStore, type Harness } from '@pa/core/harness';
+import { ClaudeAdapter, CodexAdapter, ControlledFs, createHarness, nodeExec, nodeFsOps, PiAdapter, StateStore, type Harness } from '@pa/core/harness';
 import { accountFor, keyringStatus, type Keyring } from '@pa/key-helper';
 
 export interface HarnessHostOptions {
@@ -46,8 +46,9 @@ export class HarnessHost {
     });
     const pi = new PiAdapter(common('pi'));
     const claude = new ClaudeAdapter(common('claude'));
+    const codex = new CodexAdapter(common('codex'));
     this.harness = createHarness({
-      fs, state: this.state, exec, env, adapters: { pi, claude },
+      fs, state: this.state, exec, env, adapters: { pi, claude, codex },
       keyringStatus: (profileId) => this.keyringStatus(profileId),
     });
   }

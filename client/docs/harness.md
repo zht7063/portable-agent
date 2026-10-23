@@ -57,6 +57,41 @@ exercised offline against Claude Code 2.1.309 (`harness-claude-e2e.test.ts`, opt
   differing from ours.
 - Keychain account: `<profile>/claude`. Desktop provisions it before writing; the CLI requires it to exist.
 
+## Codex adapter (H3)
+
+Field names verified against openai/codex source (commit 7d592f6, `codex-rs/model-provider-info/src/lib.rs`,
+`protocol/src/config_types.rs`), and exercised with a real `@openai/codex` 0.164.0 binary offline.
+
+Owned settings in `$CODEX_HOME/config.toml` (default `~/.codex`), edited with smol-toml + a line-preserving
+merger (`merge/toml.ts`): comments, ordering and unrelated tables are kept; result is re-parsed and verified.
+
+```toml
+model = "<models.codex ?? models.main>"      # skipped when codex.setDefault = false
+model_provider = "pa"                         # skipped when codex.setDefault = false
+
+[model_providers.pa]
+name = "Portable Agent"
+base_url = "<serverUrl>/v1"
+wire_api = "responses"                        # only value Codex accepts
+
+[model_providers.pa.auth]                     # command mode: no shell, stdout = bearer
+command = "/abs/path/pa-key"
+args = [ "<profileId>", "codex" ]
+# env mode instead: env_key = "PA_API_KEY"
+```
+
+- `auth` is mutually exclusive with `env_key` / `experimental_bearer_token` / `requires_openai_auth` (Codex
+  validate()); plaintext mode is refused; built-in provider ids (openai, gcp, amazon-bedrock*, ollama, lmstudio,
+  oss) cannot be used as the profile provider id.
+- `auth.json` is only checked for existence; ChatGPT/API login is untouched. Detach restores only `model` /
+  `model_provider`; the previous `[model_providers.<id>]` table is never snapshotted (could contain a token).
+- Warnings: top-level `profile = ...` may override; project `.codex/config.toml`; env var not exported;
+  `setDefault=false` gives a `codex -c model_provider=pa -m <model>` hint.
+- Server channel: the UI shows "服务端渠道未就绪" until probed. The probe (`harness:channel:probe`) is a GET
+  `/v1/models` with the profile key in main; `model-listed` does **not** prove `/v1/responses` works. See
+  `codex-responses-contract.md`.
+- Opt-in E2E: `PA_HARNESS_E2E=1 CODEX_BIN=/path/codex npx vitest run packages/core/test/harness-codex-e2e.test.ts`.
+
 ## Linux runtime dependency
 `secret-tool` (Debian/Ubuntu package `libsecret-tools`) and a running Secret Service (GNOME Keyring or KWallet) are needed for command key mode on Linux. Without them the client falls back to env key mode.
 

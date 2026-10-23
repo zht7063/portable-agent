@@ -16,6 +16,7 @@ export { nodeFsOps } from './fs/node.js';
 export { ControlledFs, DEFAULT_SNAPSHOT_RETAIN, sha256Hex, type BackupEntry, type ControlledFsOptions } from './fs/controlled.js';
 export * from './state.js';
 export * from './merge/json.js';
+export * from './merge/toml.js';
 export * from './env-scan.js';
 export * from './exec.js';
 export * from './paths.js';
@@ -24,6 +25,7 @@ export { detectBasic } from './detect.js';
 export * from './adapters/base.js';
 export * from './adapters/pi.js';
 export * from './adapters/claude.js';
+export * from './adapters/codex.js';
 
 export interface HarnessDeps {
   fs: ControlledFs;
@@ -64,6 +66,11 @@ export function validateProfile(p: HarnessProfile): HarnessProfile {
     v(typeof cl === 'object' && cl !== null, 'Invalid claude options');
     v(cl.setModel === undefined || typeof cl.setModel === 'boolean', 'Invalid claude setModel');
   }
+  const cx = p.codex;
+  if (cx !== undefined) {
+    v(typeof cx === 'object' && cx !== null, 'Invalid codex options');
+    v(cx.setDefault === undefined || typeof cx.setDefault === 'boolean', 'Invalid codex setDefault');
+  }
   const m = p.models;
   const models = Object.fromEntries(Object.entries({ main: m.main, small: m.small, opus: m.opus, sonnet: m.sonnet, haiku: m.haiku, codex: m.codex }).filter(([, x]) => x !== undefined)) as unknown as HarnessProfile['models'];
   return {
@@ -71,6 +78,7 @@ export function validateProfile(p: HarnessProfile): HarnessProfile {
     ...(p.providerId !== undefined ? { providerId: p.providerId } : {}),
     ...(p.envVar !== undefined ? { envVar: p.envVar } : {}),
     ...(pi ? { pi: { ...(pi.api ? { api: pi.api } : {}), ...(pi.models ? { models: [...pi.models] } : {}), ...(pi.reasoning ? { reasoning: [...pi.reasoning] } : {}), ...(pi.setDefault !== undefined ? { setDefault: pi.setDefault } : {}) } } : {}),
+    ...(cx ? { codex: { ...(cx.setDefault !== undefined ? { setDefault: cx.setDefault } : {}) } } : {}),
     ...(cl ? { claude: { ...(cl.setModel !== undefined ? { setModel: cl.setModel } : {}) } } : {}),
   };
 }

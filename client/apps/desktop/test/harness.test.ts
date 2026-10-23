@@ -32,16 +32,16 @@ describe('desktop harness IPC skeleton', () => {
     const r = await dispatch(handlers, 'harness:detect', {});
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.data.registered).toEqual(['pi', 'claude']);
+      expect(r.data.registered).toEqual(['pi', 'claude', 'codex']);
       expect(r.data.harnesses.map((h) => h.configDir)).toEqual([join(home, '.pi', 'agent'), join(home, '.claude'), join(home, '.codex')]);
     }
   });
-  it('apply/rollback require confirm: true; plan without adapter -> NOT_IMPLEMENTED', async () => {
+  it('apply/rollback require confirm: true; plan for an unknown profile is rejected', async () => {
     const { handlers } = setup();
     const plan: Plan = { id: 'pi', profileId: 'p', createdAt: '', baseFingerprints: {}, changes: [], conflicts: [], warnings: [], externalUnownedChange: [] };
     expect(await dispatch(handlers, 'harness:apply', { id: 'pi', plan, confirm: false } as never)).toMatchObject({ ok: false, error: { code: 'VALIDATION', message: 'This action requires explicit confirmation' } });
     expect(await dispatch(handlers, 'harness:rollback', { id: 'pi', target: 'last' } as never)).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
-    expect(await dispatch(handlers, 'harness:apply', { id: 'codex', plan: { ...plan, id: 'codex' }, confirm: true })).toMatchObject({ ok: false, error: { code: 'NOT_IMPLEMENTED' } });
+    expect(await dispatch(handlers, 'harness:apply', { id: 'pi', plan: { ...plan, id: 'codex' }, confirm: true })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
     expect(await dispatch(handlers, 'harness:apply', { id: 'pi', plan, confirm: true })).toMatchObject({ ok: false, error: { code: 'VALIDATION', message: 'Unknown harness profile' } });
     expect(await dispatch(handlers, 'keys:reveal', { id: 7 } as never)).toMatchObject({ ok: false, error: { message: 'Reveal requires explicit confirmation' } });
   });
@@ -136,5 +136,36 @@ describe('Pi via IPC (H1)', () => {
     expect((await dispatch(s.handlers, 'harness:rollback', { id: 'claude', target: 'detach', confirm: true })).ok).toBe(true);
     expect(await kr.get('default/claude')).toBeNull();
     expect(JSON.parse(await readFile(join(s.home, '.claude', 'settings.json'), 'utf8')).apiKeyHelper).toBeUndefined();
+  });
+
+  it('Codex (H3): apply writes config.toml with [model_providers.pa.auth] (no key); channel probe is read-only and key-free', async () => {
+    const kr = new MemoryKeyring();
+    const vault = new MemoryKeyVault(); void vault.set(7, SECRET);
+    const seen: { url: string; method: string; auth: boolean }[] = [];
+    const fetchFn = (async (u: string | URL | Request, init?: RequestInit) => {
+      const h = new Headers(init?.headers);
+      seen.push({ url: String(u), method: init?.method ?? 'GET', auth: h.get('authorization') === `Bearer ${SECRET}` });
+      return new Response(JSON.stringify({ data: [{ id: 'deepseek-v4-pro' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+    const core = createCore({ store: new MemoryTokenStore(), vault, fetch: fetchFn, serverUrl: 'http://127.0.0.1:9' });
+    const t = tmpHarnessHost(kr, () => core);
+    const cfg = { serverUrl: 'http://127.0.0.1:9', defaultMaxTokens: 2048, insecureTransport: true };
+    const handlers = createHandlers({ getCore: () => core, getConfig: () => cfg, setConfig: async () => cfg, copyToClipboard: () => {}, emitStream: () => {}, harness: t.host.harness });
+    expect(await dispatch(handlers, 'harness:channel:probe', { profileId: 'default' })).toMatchObject({ ok: true, data: { state: 'no-profile' } });
+    await dispatch(handlers, 'harness:profile:upsert', { ...prof, models: { main: 'deepseek-v4-pro' } });
+    const probe = await dispatch(handlers, 'harness:channel:probe', { profileId: 'default' });
+    expect(probe).toMatchObject({ ok: true, data: { state: 'model-listed', model: 'deepseek-v4-pro' } });
+    expect(JSON.stringify(probe)).not.toContain(SECRET);
+    expect(seen.every((x) => x.method === 'GET' && x.url.endsWith('/v1/models'))).toBe(true);
+    await dispatch(handlers, 'harness:profile:upsert', { ...prof, models: { main: 'deepseek-v4-pro', codex: 'not-there' } });
+    expect(await dispatch(handlers, 'harness:channel:probe', { profileId: 'default' })).toMatchObject({ ok: true, data: { state: 'model-missing' } });
+    const plan = await dispatch(handlers, 'harness:plan', { id: 'codex', profileId: 'default' });
+    if (!plan.ok) throw new Error('plan failed');
+    expect((await dispatch(handlers, 'harness:apply', { id: 'codex', plan: plan.data, confirm: true })).ok).toBe(true);
+    expect(await kr.get('default/codex')).toBe(SECRET);
+    const text = await readFile(join(t.home, '.codex', 'config.toml'), 'utf8');
+    expect(text).toContain('[model_providers.pa.auth]');
+    expect(text).toContain('model_provider = "pa"');
+    for (const f of [...(await filesUnder(t.home)), ...(await filesUnder(t.dataDir))]) expect(await readFile(f, 'utf8')).not.toContain(SECRET);
   });
 });
