@@ -13,6 +13,10 @@ const plan = (conflicts: Plan['conflicts'] = []): Plan => ({
   id: 'pi', profileId: 'default', createdAt: '', baseFingerprints: {}, warnings: ['w1'], externalUnownedChange: [], conflicts,
   changes: [{ file: '/tmp/h/.pi/agent/models.json', setting: 'providers.pa', kind: 'create', before: null, after: '{"apiKey":"!pa-key default pi"}' }],
 });
+const hist = { id: 'pi', attached: true, firstWrite: true, snapshots: [
+  { snapshotId: '2026-10-23T13-00-00.000Z-aaaaaa', at: '2026-10-23T13:00:00.000Z', action: 'apply', available: true },
+  { snapshotId: '2026-10-22T13-00-00.000Z-bbbbbb', at: '2026-10-22T13:00:00.000Z', action: 'apply', available: false },
+] };
 function setup(p: Plan, keyringAvailable = true, extra: Parameters<typeof mockPa>[0] = {}) {
   return mockPa({
     'harness:detect': () => det,
@@ -23,6 +27,8 @@ function setup(p: Plan, keyringAvailable = true, extra: Parameters<typeof mockPa
     'harness:plan': () => p,
     'harness:apply': () => ({ id: 'pi', written: ['/tmp/h/.pi/agent/models.json'], warnings: [] }),
     'harness:rollback': () => ({ id: 'pi', written: [], warnings: [] }),
+    'harness:history': () => hist,
+    'harness:rollback:preview': (r: { target: unknown }) => ({ id: 'pi', target: r.target, files: [{ path: '/tmp/h/.pi/agent/models.json', kind: 'modify' }], changes: [{ file: '/tmp/h/.pi/agent/models.json', setting: 'providers.pa', kind: 'remove', before: '{"apiKey":"!pa-key default pi"}', after: null }], warnings: [] }),
     ...extra,
   });
 }
@@ -60,9 +66,16 @@ describe('HarnessPanel (Pi)', () => {
     const pa = setup(plan(), false);
     render(<HarnessPanel keyId={3} serverUrl="http://h:3000" />);
     await waitFor(() => expect((screen.getByLabelText('取 key 方式') as HTMLSelectElement).value).toBe('env'));
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const c = vi.spyOn(window, 'confirm').mockReturnValue(true);
     await userEvent.click(screen.getByText('移除我们的配置'));
+    // preview first: nothing written, confirm not yet asked
+    expect(await screen.findByRole('region', { name: '回滚预览' })).toBeTruthy();
+    expect(screen.getByRole('table', { name: '回滚预览变更' }).textContent).toContain('providers.pa');
+    expect(c).not.toHaveBeenCalled();
+    expect(pa.calls('harness:rollback')).toEqual([]);
+    await userEvent.click(screen.getByText('确认移除我们的配置'));
     await waitFor(() => expect(pa.calls('harness:rollback')[0]).toEqual({ id: 'pi', target: 'detach', confirm: true }));
+    expect(c).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -128,10 +141,57 @@ describe('HarnessPanel rollback external edits (Aegis #1)', () => {
     await screen.findByText(/已安装 0.70.2/);
     const c = vi.spyOn(window, 'confirm').mockReturnValueOnce(true).mockReturnValueOnce(false);
     await userEvent.click(screen.getByText('回滚到上一版'));
+    expect(await screen.findByText(/上次写入后被修改过/)).toBeTruthy();
+    await userEvent.click(screen.getByText('确认回滚到上一版'));
     await waitFor(() => expect(c).toHaveBeenCalledTimes(2));
     expect(pa.calls('harness:rollback')).toEqual([]);
     c.mockReturnValue(true);
-    await userEvent.click(screen.getByText('回滚到上一版'));
+    await userEvent.click(screen.getByText('确认回滚到上一版'));
     await waitFor(() => expect(pa.calls('harness:rollback')[0]).toEqual({ id: 'pi', target: 'last', confirm: true, overwriteExternal: true }));
+  });
+});
+
+describe('HarnessPanel rollback UX (H4)', () => {
+  it('lists snapshots (pruned ones not restorable), previews a snapshot, cancel writes nothing', async () => {
+    const pa = setup(plan());
+    render(<HarnessPanel keyId={3} serverUrl="http://h:3000" />);
+    const list = await screen.findByRole('list', { name: '快照列表' });
+    expect(list.querySelectorAll('li')).toHaveLength(2);
+    expect(list.textContent).toContain('已清理');
+    expect(screen.getAllByText('预览恢复')).toHaveLength(1);
+    expect(screen.getByLabelText('接管状态').textContent).toBe('已接管');
+    await userEvent.click(screen.getByText('预览恢复'));
+    await waitFor(() => expect(pa.calls('harness:rollback:preview')[0]).toEqual({ id: 'pi', target: { snapshotId: '2026-10-23T13-00-00.000Z-aaaaaa' } }));
+    expect(await screen.findByText(/models.json（修改）/)).toBeTruthy();
+    await userEvent.click(screen.getByText('取消'));
+    expect(screen.queryByRole('region', { name: '回滚预览' })).toBeNull();
+    expect(pa.calls('harness:rollback')).toEqual([]);
+  });
+
+  it('blocked preview disables confirm and shows why; empty history disables presets', async () => {
+    setup(plan(), true, {
+      'harness:history': () => ({ id: 'pi', attached: true, firstWrite: false, snapshots: [] }),
+      'harness:rollback:preview': (r: { target: unknown }) => ({ id: 'pi', target: r.target, files: [], changes: [], warnings: [], blocked: 'Managed settings were changed outside Portable Agent' }),
+    });
+    render(<HarnessPanel keyId={3} serverUrl="http://h:3000" />);
+    expect(await screen.findByText(/还没有快照/)).toBeTruthy();
+    expect((screen.getByText('回滚到上一版') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByText('恢复到首次写入前') as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(screen.getByText('移除我们的配置'));
+    expect(await screen.findByText(/无法执行：Managed settings were changed/)).toBeTruthy();
+    expect((screen.getByText('确认移除我们的配置') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('plan with no changes says so; cancel closes the plan; errors surface as alerts', async () => {
+    setup({ ...plan(), changes: [], warnings: [] }, true, { 'harness:apply': () => { throw new Error('unused'); } });
+    render(<HarnessPanel keyId={3} serverUrl="http://h:3000" />);
+    await waitFor(() => expect((screen.getByLabelText('主模型') as HTMLSelectElement).value).toBe('deepseek-flash'));
+    await userEvent.click(screen.getByText('预览变更'));
+    expect(await screen.findByText('没有托管设置的变更')).toBeTruthy();
+    await userEvent.click(screen.getByText('取消'));
+    expect(screen.queryByText('应用')).toBeNull();
+    render(<HarnessPanel serverUrl="http://h:3000" />);
+    await userEvent.click(screen.getAllByText('预览变更')[1]!);
+    expect((await screen.findByRole('alert')).textContent).toMatch(/请先在 API Keys 中选择一个 key/);
   });
 });
