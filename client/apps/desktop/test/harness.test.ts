@@ -176,3 +176,35 @@ describe('Pi via IPC (H1)', () => {
     expect(JSON.stringify(pv)).not.toContain(SECRET);
   });
 });
+
+describe('harness:profile:upsert server origin (Aegis #3)', () => {
+  const mk = (answer: boolean | undefined) => {
+    const core = createCore({ store: new MemoryTokenStore(), vault: new MemoryKeyVault(), fetch: async () => { throw new Error('no network in tests'); } });
+    const t = tmpHarnessHost(new MemoryKeyring(), () => core);
+    const cfg = { serverUrl: 'http://127.0.0.1:9/', defaultMaxTokens: 2048, insecureTransport: true };
+    const asked: [string, string][] = [];
+    const handlers = createHandlers({ getCore: () => core, getConfig: () => cfg, setConfig: async () => cfg, copyToClipboard: () => {}, emitStream: () => {}, harness: t.host.harness,
+      ...(answer === undefined ? {} : { confirmForeignServer: async (a: string, b: string) => { asked.push([a, b]); return answer; } }) });
+    return { handlers, asked, t };
+  };
+  const p = (serverUrl: string) => ({ id: 'default', serverUrl, keyId: 7, keyMode: 'command' as const, models: { main: 'm' } });
+
+  it('same origin saves without asking; foreign origin needs the main-process confirmation', async () => {
+    const a = mk(false);
+    expect((await dispatch(a.handlers, 'harness:profile:upsert', p('http://127.0.0.1:9/v1'))).ok).toBe(true);
+    expect(a.asked).toEqual([]);
+    const r = await dispatch(a.handlers, 'harness:profile:upsert', p('https://evil.example'));
+    expect(r).toMatchObject({ ok: false, error: { code: 'CANCELLED' } });
+    expect(a.asked).toEqual([['https://evil.example', 'http://127.0.0.1:9']]);
+    expect((await a.t.host.harness.listProfiles())[0]!.serverUrl).toBe('http://127.0.0.1:9/v1');
+
+    const b = mk(true);
+    expect((await dispatch(b.handlers, 'harness:profile:upsert', p('https://other.example'))).ok).toBe(true);
+    // already confirmed for this profile: no second prompt
+    expect((await dispatch(b.handlers, 'harness:profile:upsert', { ...p('https://other.example/v1'), models: { main: 'n' } })).ok).toBe(true);
+    expect(b.asked).toHaveLength(1);
+
+    const c = mk(undefined); // no confirmer wired -> refuse
+    expect(await dispatch(c.handlers, 'harness:profile:upsert', p('https://x.example'))).toMatchObject({ ok: false });
+  });
+});

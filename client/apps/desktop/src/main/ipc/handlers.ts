@@ -30,10 +30,15 @@ export interface HandlerDeps {
   /** Push a chat:stream:event to the renderer. */
   emitStream(e: ChatStreamEvent): void;
   harness: Harness;
+  /**
+   * Aegis #3: native (main-process) confirmation when a harness profile points at a server other than the client's
+   * own. Absent = refuse. Never driven by the renderer.
+   */
+  confirmForeignServer?(profileOrigin: string, clientOrigin: string): Promise<boolean>;
 }
 
 /** Pure (no electron import) so it is unit-testable. */
-export function createHandlers({ getCore, getConfig, setConfig, copyToClipboard, emitStream, harness }: HandlerDeps): HandlerMap {
+export function createHandlers({ getCore, getConfig, setConfig, copyToClipboard, emitStream, harness, confirmForeignServer }: HandlerDeps): HandlerMap {
   const streams = new Map<string, AbortController>();
   const core = new Proxy({} as Core, { get: (_t, k) => getCore()[k as keyof Core] });
   const withMax = <T extends { maxTokens?: number }>(r: T): T => ({ ...r, maxTokens: r.maxTokens ?? getConfig().defaultMaxTokens });
@@ -75,7 +80,18 @@ export function createHandlers({ getCore, getConfig, setConfig, copyToClipboard,
     'harness:rollback:preview': (r) => harness.previewRollback(r.id, r.target),
     'harness:keyring:status': (r) => harness.keyringStatus(r?.profileId),
     'harness:profile:list': async () => ({ profiles: await harness.listProfiles() }),
-    'harness:profile:upsert': (r) => harness.upsertProfile(r),
+    'harness:profile:upsert': async (r) => {
+      const origin = (u: unknown) => { try { return typeof u === 'string' ? new URL(u).origin : ''; } catch { return ''; } };
+      const want = origin(r?.serverUrl); const client = origin(getConfig().serverUrl);
+      if (want && want !== client) {
+        // Already-confirmed foreign origin for this profile does not prompt again.
+        const prev = (await harness.listProfiles()).find((x) => x.id === r.id);
+        if (origin(prev?.serverUrl) !== want && !(await confirmForeignServer?.(want, client))) {
+          throw new PaException({ code: 'CANCELLED', message: 'Profile server differs from the client server; not saved' });
+        }
+      }
+      return harness.upsertProfile(r);
+    },
     'harness:channel:probe': async (r) => {
       const checkedAt = new Date().toISOString();
       const p = (await harness.listProfiles()).find((x) => x.id === r?.profileId);

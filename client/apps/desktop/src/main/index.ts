@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url';
 import { isTrustedSender, untrustedSender } from './ipc/sender';
-import { app, BrowserWindow, clipboard, ipcMain, session as electronSession, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, session as electronSession, shell } from 'electron';
 import { join } from 'node:path';
 import { DEFAULT_SERVER_URL, INVOKE_CHANNELS, type InvokeChannel } from '@pa/core';
 import { createTokenStore } from './safe-storage-store';
@@ -90,6 +90,15 @@ app.whenReady().then(async () => {
     setConfig: (patch) => host.set(patch),
     copyToClipboard: (t) => clipboard.writeText(t),
     emitStream: (e) => win?.webContents.send('chat:stream:event', e),
+    confirmForeignServer: async (profileOrigin, clientOrigin) => {
+      const opts = {
+        type: 'warning' as const, buttons: ['取消', '仍然使用该服务器'], defaultId: 0, cancelId: 0, noLink: true,
+        title: 'Portable Agent', message: 'Harness 配置指向另一个服务器',
+        detail: `配置中的服务器：${profileOrigin}\n客户端当前服务器：${clientOrigin}\n\n只有你信任该服务器时才继续：你的 API key 会被发送到那里。`,
+      };
+      const r = win ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts);
+      return r.response === 1;
+    },
   });
   for (const ch of INVOKE_CHANNELS) {
     ipcMain.handle(ch, (e, req) => (isTrustedSender(e, win, RENDERER_URL) ? dispatch(handlers, ch as InvokeChannel, req) : untrustedSender()));
