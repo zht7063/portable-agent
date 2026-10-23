@@ -192,22 +192,26 @@ export class ControlledFs {
       if (!eqFp(await this.fingerprint(p), opts.expect)) fail('File changed since it was last read; re-run plan');
     };
     await check();
-    const st = await this.ops.stat(p);
+    // Symlinked config (dotfile managers): write through to the link target and keep the link. assertAllowed has
+    // already verified the resolved target is inside the allowed roots.
+    const real = await this.ops.realpath(p);
+    const target = real && real !== p ? await this.assertAllowed(real) : p;
+    const st = await this.ops.stat(target);
     const mode = st ? st.mode & 0o777 : FILE_MODE;
-    const dir = dirname(p);
+    const dir = dirname(target);
     await this.ensureDir(dir, DIR_MODE);
-    const tmp = join(dir, `.${basename(p)}.pa-tmp-${randomBytes(6).toString('hex')}`);
+    const tmp = join(dir, `.${basename(target)}.pa-tmp-${randomBytes(6).toString('hex')}`);
     try {
       await this.ops.writeFile(tmp, bytes, mode);
       await this.beforeRename?.(p, tmp);
       await check();
-      await this.ops.rename(tmp, p);
+      await this.ops.rename(tmp, target);
     } catch (e) {
       await this.ops.rm(tmp).catch(() => {});
       throw e;
     }
     await this.ops.fsyncDir(dir);
-    const after = await this.ops.stat(p);
+    const after = await this.ops.stat(target);
     return { sha256: sha256(bytes), mtimeMs: after?.mtimeMs ?? 0, size: bytes.byteLength };
   }
 

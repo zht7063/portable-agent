@@ -117,3 +117,26 @@ describe('harness fs: backups', () => {
     await expect(fs.loadBackup('claude', { snapshotId: '../../etc' })).rejects.toThrow(/Invalid/);
   });
 });
+
+describe('harness fs: symlinked config (Aegis low)', () => {
+  it('writes through to the link target, keeps the link and the target mode; escape still refused', async () => {
+    const { root, home, fs } = await setup();
+    const { lstat, readlink } = await import('node:fs/promises');
+    await mkdir(join(home, 'dotfiles'));
+    const real = join(home, 'dotfiles', 'settings.json');
+    await writeFile(real, '{"a":1}'); await chmod(real, 0o640);
+    const link = join(home, 'settings.json');
+    await symlink(real, link);
+    const fp = await fs.fingerprint(link);
+    await fs.atomicWrite(link, '{"a":2}', { expect: fp });
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    expect(await readlink(link)).toBe(real);
+    expect(await readFile(real, 'utf8')).toBe('{"a":2}');
+    expect(await mode(real)).toBe(0o640);
+    expect((await readdir(join(home, 'dotfiles'))).filter((n) => n.includes('pa-tmp'))).toEqual([]);
+    await mkdir(join(root, 'out')); await writeFile(join(root, 'out', 'x.json'), '{}');
+    await symlink(join(root, 'out', 'x.json'), join(home, 'esc.json'));
+    await expect(fs.atomicWrite(join(home, 'esc.json'), '{"p":1}')).rejects.toThrow(/outside/);
+    expect(await readFile(join(root, 'out', 'x.json'), 'utf8')).toBe('{}');
+  });
+});
