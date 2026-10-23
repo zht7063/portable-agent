@@ -119,6 +119,26 @@ args = [ "<profileId>", "codex" ]
 - `first-write` restores the original files.
 - `detach` removes only our settings and restores the previous defaults. It is refused if those settings were edited outside the app.
 - Every rollback snapshots the current files first. Apply and rollback need explicit confirmation over IPC.
+- If a file was edited after our last write (fingerprint differs), `last` / `first-write` / `--snapshot` are refused
+  unless the user confirms again (`overwriteExternal`, CLI `--overwrite-external`); the UI asks a second time and
+  lists the files. Preview (`harness:rollback:preview`) is a read-only, masked dry run; `harness:history` lists snapshots.
+- Apply records its snapshot first and each file's state right after that file is written, so a failure midway
+  can be rolled back with `last`.
+- Symlinked config files are written through to the link target (which must be inside the allowed roots); the link stays.
+
+### Backups may contain your original secrets
+`first-write` and snapshot backups are byte copies of the harness files **before** we changed them, so they can
+contain a key you had put there yourself (e.g. `ANTHROPIC_AUTH_TOKEN` in `~/.claude/settings.json`, an `apiKey` in
+Pi's `models.json`, a `[model_providers.*]` token in Codex `config.toml`). Our own writes never contain keys.
+Backups live in `<userData>/harness/backups/{first-write,snapshots}/` (dirs 0700, files 0600, newest N snapshots
+kept). To remove them: quit the app and delete that directory (this also removes the ability to roll back), e.g.
+`rm -rf "$HOME/.config/Portable Agent/harness/backups"` on Linux,
+`~/Library/Application Support/Portable Agent/harness/backups` on macOS, `%APPDATA%\Portable Agent\harness\backups` on Windows.
+
+### TOML comments
+Comments and unrelated tables in `config.toml` are preserved. Inside our `[model_providers.<id>]` table the
+table is re-rendered: full-line comments are kept (moved just above the table header); end-of-line comments on
+keys inside that table are not kept.
 
 ## Keys
 - One keychain entry per harness: service `portable-agent`, account `<profileId>/<harness>`.
