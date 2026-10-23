@@ -180,8 +180,10 @@ export abstract class JsonHarnessAdapter implements HarnessAdapter {
     if (!todo.length) return { id: this.id, written: [], warnings };
     await this.o.beforeWrite?.(profile);
     const hist = await this.snapshotWithState('apply');
+    // Aegis #2: record the snapshot before writing and each file's state right after it is written, so a failure
+    // midway leaves state consistent with disk (written files tracked, rollback 'last' available).
+    await this.o.state.update((s) => { s.history.push(hist); });
     const written: string[] = [];
-    const newEntries: Record<string, ManagedFileState> = {};
     for (const f of todo) {
       await this.o.fs.backupFirstWrite(this.id, f.path);
       const edits: JsonEdit[] = [...f.desired].map(([s, v]) => ({ path: undot(s), value: v }));
@@ -192,15 +194,12 @@ export abstract class JsonHarnessAdapter implements HarnessAdapter {
       // Remember the user's previous values once (settings.json defaults only; models.json provider may hold a key).
       const remember = keep.filter((s) => this.rememberOriginal(f.path, s));
       const original = f.entry?.original ?? (remember.length ? ownedValues(f.root, remember) : undefined);
-      newEntries[f.path] = {
+      const entry: ManagedFileState = {
         harness: this.id, lastWritten: fp, ownedValuesHash: hashOwnedValues(ownedValues(this.parseText(out), keep)),
         ownedSettings: keep, ...(original ? { original } : {}), updatedAt: this.now(),
       };
+      await this.o.state.update((s) => { if (entry.ownedSettings.length) s.files[f.path] = entry; else delete s.files[f.path]; });
     }
-    await this.o.state.update((s) => {
-      for (const [p, e] of Object.entries(newEntries)) { if (e.ownedSettings.length) s.files[p] = e; else delete s.files[p]; }
-      s.history.push(hist);
-    });
     return { id: this.id, written, snapshotId: hist.snapshotId, warnings };
   }
 
