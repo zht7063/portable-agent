@@ -4,7 +4,7 @@ import { call, errText } from '../api';
 import { Err, Section } from './ui';
 
 export function ChatPanel({ keyId, defaultMaxTokens }: { keyId?: number; defaultMaxTokens: number }) {
-  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [models, setModels] = useState<ModelInfo[] | null>(null);
   const [model, setModel] = useState('');
   const [maxTokens, setMaxTokens] = useState(defaultMaxTokens);
   const [stream, setStream] = useState(true);
@@ -55,16 +55,17 @@ export function ChatPanel({ keyId, defaultMaxTokens }: { keyId?: number; default
   return (
     <Section title="对话">
       <p>
-        模型 <select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((m) => <option key={m.id}>{m.id}</option>)}</select>{' '}
+        模型 <select value={model} onChange={(e) => setModel(e.target.value)}>{(models ?? []).map((m) => <option key={m.id}>{m.id}</option>)}</select>{' '}
         max_tokens <input type="number" style={{ width: 80 }} value={maxTokens} onChange={(e) => setMaxTokens(Number(e.target.value) || defaultMaxTokens)} />{' '}
         <label><input type="checkbox" checked={stream} onChange={(e) => setStream(e.target.checked)} /> 流式</label>{' '}
+        {models === null && !msg && <span>加载模型中…</span>}{models?.length === 0 && <b>暂无可用模型</b>}{' '}
         {keyId === undefined && <b>请先在上方选择一个 key</b>}
       </p>
       <div style={{ maxHeight: 200, overflow: 'auto' }}>
         {history.slice(0, reqId ? undefined : -1).map((m, i) => <p key={i}><b>{m.role}:</b> {m.content}</p>)}
       </div>
       {reasoning && <details><summary>推理过程</summary><pre style={{ whiteSpace: 'pre-wrap', color: '#555' }}>{reasoning}</pre></details>}
-      {(answer || reqId) && <p><b>assistant:</b> {answer}{reqId ? ' ▍' : ''}</p>}
+      {(answer || reqId) && <p><b>assistant:</b> {answer}{reqId ? (answer ? ' ▍' : '生成中…') : ''}</p>}
       {usage && <small>tokens：{usage.promptTokens} + {usage.completionTokens} = {usage.totalTokens}</small>}
       {warn && <p style={{ color: '#b45309' }}>{warn}</p>}
       <p>

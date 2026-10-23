@@ -26,7 +26,7 @@ export function AuthPanel({ onSession }: { onSession: (s: SessionView) => void }
     <Section title={mode === 'login' ? '登录' : '注册'}>
       <input placeholder="用户名" value={username} onChange={(e) => setU(e.target.value)} />{' '}
       <input placeholder="密码（8-128 位）" type="password" value={password} onChange={(e) => setP(e.target.value)} />{' '}
-      <button disabled={busy} onClick={() => void submit()}>{mode === 'login' ? '登录' : '注册'}</button>{' '}
+      <button disabled={busy} onClick={() => void submit()}>{busy ? '请稍候…' : mode === 'login' ? '登录' : '注册'}</button>{' '}
       <button onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? '去注册' : '去登录'}</button>
       {info && <p>{info}</p>}
       <Err msg={msg} />

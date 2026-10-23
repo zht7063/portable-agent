@@ -27,9 +27,32 @@ function createWindow(): BrowserWindow {
     if (url.startsWith('https://')) void shell.openExternal(url);
     return { action: 'deny' };
   });
+  if (process.env.PA_SMOKE === '1') runSmoke(win);
   void win.loadFile(join(__dirname, '../renderer/index.html'));
   return win;
 }
+
+/** Dev smoke check (PA_SMOKE=1): verify isolation + bridge + first render, print JSON, quit. */
+function runSmoke(win: BrowserWindow) {
+  const finish = (r: unknown, code: number) => { console.log('PA_SMOKE ' + JSON.stringify(r)); app.exit(code); };
+  const timer = setTimeout(() => finish({ ok: false, reason: 'timeout' }, 1), 20000);
+  win.webContents.once('did-finish-load', () => {
+    setTimeout(() => {
+      win.webContents.executeJavaScript(`(async () => ({
+        bridge: typeof window.pa?.invoke === 'function' && typeof window.pa?.on === 'function',
+        noNode: typeof require === 'undefined' && typeof process === 'undefined',
+        title: document.querySelector('h2')?.textContent ?? null,
+        loginShown: [...document.querySelectorAll('button')].some((b) => b.textContent === '登录'),
+        session: (await window.pa.invoke('auth:session', {})).data?.status ?? null,
+      }))()`).then((r: Record<string, unknown>) => {
+        clearTimeout(timer);
+        finish(r, r.bridge && r.noNode && r.title === 'Portable Agent' && r.loginShown ? 0 : 1);
+      }, (e: unknown) => { clearTimeout(timer); finish({ ok: false, reason: String(e) }, 1); });
+    }, 1500);
+  });
+}
+
+if (process.env.PA_SMOKE === '1' && process.env.PA_USER_DATA) app.setPath('userData', process.env.PA_USER_DATA);
 
 app.whenReady().then(async () => {
   // Renderer never talks to the network; deny all permission requests.

@@ -6,7 +6,7 @@ import { Err, Section } from './ui';
 const STATUS: Record<number, string> = { 1: '启用', 2: '禁用', 3: '过期', 4: '耗尽' };
 
 export function KeysPanel({ selected, onSelect }: { selected?: number; onSelect: (id: number | undefined) => void }) {
-  const [keys, setKeys] = useState<KeySummary[]>([]);
+  const [keys, setKeys] = useState<KeySummary[] | null>(null);
   const [name, setName] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -31,7 +31,7 @@ export function KeysPanel({ selected, onSelect }: { selected?: number; onSelect:
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead><tr><th align="left">用于对话</th><th align="left">名称</th><th align="left">Key</th><th align="left">状态</th><th align="left">额度</th><th /></tr></thead>
         <tbody>
-          {keys.map((k) => (
+          {keys?.map((k) => (
             <tr key={k.id} style={{ borderTop: '1px solid #eee' }}>
               <td><input type="radio" checked={selected === k.id} onChange={() => onSelect(k.id)} /></td>
               <td>{k.name}</td>
@@ -60,6 +60,8 @@ export function KeysPanel({ selected, onSelect }: { selected?: number; onSelect:
           ))}
         </tbody>
       </table>
+      {keys === null && !msg && <p>加载中…</p>}
+      {keys?.length === 0 && <p>还没有 API key，输入名称后点“新建”。</p>}
       {note && <p>{note}</p>}
       <Err msg={msg} />
     </Section>

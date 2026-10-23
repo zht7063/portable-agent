@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 const core = (p: string) => fileURLToPath(new URL(`./packages/core/src/${p}`, import.meta.url));
 
 export default defineConfig({
+  esbuild: { jsx: 'automatic' },
   resolve: {
     // Tests run against core sources (no build step needed).
     alias: [
@@ -12,7 +13,7 @@ export default defineConfig({
     ],
   },
   test: {
-    include: ['packages/*/test/**/*.test.ts', 'apps/*/test/**/*.test.ts'],
+    include: ['packages/*/test/**/*.test.ts', 'apps/*/test/**/*.test.ts', 'apps/*/test/**/*.test.tsx'],
     exclude: ['**/node_modules/**', '**/dist/**', 'test/live/**'],
   },
 });
