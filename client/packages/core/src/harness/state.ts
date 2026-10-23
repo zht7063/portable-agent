@@ -20,7 +20,13 @@ export interface HarnessState {
   /** Client SSOT: live configs are projections of these profiles. No secrets (keyId only). */
   profiles: Record<string, HarnessProfile>;
   files: Record<string, ManagedFileState>;
-  history: { harness: HarnessId; snapshotId: string; at: string; action: 'apply' | 'rollback' }[];
+  history: HistoryEntry[];
+}
+
+export interface HistoryEntry {
+  harness: HarnessId; snapshotId: string; at: string; action: 'apply' | 'rollback' | 'detach';
+  /** Managed-file entries as they were when the snapshot was taken (restored with it). */
+  files?: Record<string, ManagedFileState>;
 }
 
 export const emptyState = (): HarnessState => ({ version: 1, profiles: {}, files: {}, history: [] });

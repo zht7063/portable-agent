@@ -72,6 +72,8 @@ export function createHandlers({ getCore, getConfig, setConfig, copyToClipboard,
     'harness:apply': (r) => harness.apply(r.id, r.plan, r.acknowledge ?? []),
     'harness:rollback': (r) => harness.rollback(r.id, r.target),
     'harness:keyring:status': (r) => harness.keyringStatus(r?.profileId),
+    'harness:profile:list': async () => ({ profiles: await harness.listProfiles() }),
+    'harness:profile:upsert': (r) => harness.upsertProfile(r),
   };
 }
 

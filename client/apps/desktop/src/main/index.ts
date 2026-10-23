@@ -80,7 +80,7 @@ app.whenReady().then(async () => {
   try { helperPath = await installWrapper({ dir: join(userData, 'bin'), execPath: process.execPath, scriptPath: helperScript }); }
   catch { /* harness panel reports the helper as missing */ }
   const harnessHost = new HarnessHost({
-    home: homedir(), dataDir: userData, env: process.env, platform: process.platform, keyring: createKeyring(), helperPath,
+    home: homedir(), dataDir: userData, env: process.env, platform: process.platform, keyring: createKeyring(), helperPath, getCore: () => host.core,
   });
   const handlers = createHandlers({
     harness: harnessHost.harness,

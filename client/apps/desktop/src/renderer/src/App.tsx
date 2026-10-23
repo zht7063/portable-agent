@@ -6,6 +6,7 @@ import { BillingPanel } from './panels/BillingPanel';
 import { KeysPanel } from './panels/KeysPanel';
 import { ChatPanel } from './panels/ChatPanel';
 import { SettingsPanel } from './panels/SettingsPanel';
+import { HarnessPanel } from './panels/HarnessPanel';
 
 export function App() {
   const [session, setSession] = useState<SessionView | null>(null);
@@ -41,6 +42,7 @@ export function App() {
           <BillingPanel />
           <KeysPanel selected={keyId} onSelect={setKeyId} />
           <ChatPanel keyId={keyId} defaultMaxTokens={config?.defaultMaxTokens ?? 2048} />
+          <HarnessPanel keyId={keyId} serverUrl={config?.serverUrl} />
         </>
       )}
     </main>

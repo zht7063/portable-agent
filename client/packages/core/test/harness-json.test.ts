@@ -48,4 +48,13 @@ describe('format-preserving JSON merge', () => {
     expect(() => mergeOwnedJson('{"a":', [{ path: ['b'], value: 1 }])).toThrow(/not valid JSON/);
     expect(() => mergeOwnedJson('[1]', [{ path: ['b'], value: 1 }])).toThrow(/object/);
   });
+  it('removing a multi-line value after an inline sibling leaves no residue (H1 regression)', () => {
+    const orig = '{\n  "p": {\n    "a": { "x": 1 }\n  }\n}\n';
+    const added = mergeOwnedJson(orig, [{ path: ['p', 'b'], value: { y: [{ z: 1 }] } }]);
+    expect(mergeOwnedJson(added, [{ path: ['p', 'b'], value: undefined }])).toBe(orig);
+    const withComment = '{\n  "a": 1, // keep me\n  "b": {\n    "c": 2\n  }\n}\n';
+    const out = mergeOwnedJson(withComment, [{ path: ['b'], value: undefined }]);
+    expect(out).toContain('// keep me');
+    expect(out).not.toContain('"c"');
+  });
 });

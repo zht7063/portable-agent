@@ -81,9 +81,11 @@ function applyOne(text: string, e: JsonEdit, fmt: FormattingOptions): string {
   if (ed.content === '') {
     // Removal: drop the line too if nothing else remains on it.
     const removed = text.slice(ed.offset, ed.offset + ed.length);
-    const nl = removed.lastIndexOf('\n');
-    // "<prev>, // comment\n  "ours": v" -> keep the comment that belonged to the previous line.
-    const keep = removed.startsWith(',') && nl > 0 ? removed.slice(1, nl).replace(/\r$/, '') : '';
+    const nl = removed.indexOf('\n');
+    // "<prev>, // comment\n  "ours": v" -> keep the comment that belonged to the previous line (first line only;
+    // a multi-line removed value must not leak back in).
+    const head = removed.startsWith(',') && nl > 0 ? removed.slice(1, nl).replace(/\r$/, '') : '';
+    const keep = head && bare(head) === '' ? head : '';
     let out = text.slice(0, ed.offset) + keep + text.slice(ed.offset + ed.length);
     const s = lineStart(out, ed.offset); const en = lineEnd(out, ed.offset);
     if (out.slice(s, en).trim() === '') {

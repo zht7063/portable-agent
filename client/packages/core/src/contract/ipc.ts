@@ -5,7 +5,7 @@
  */
 import type { Result } from './errors.js';
 import type { SessionView } from './session.js';
-import type { ApplyResult, HarnessApplyReq, HarnessDetectRes, HarnessKeyringStatusReq, HarnessPlanReq, HarnessRollbackReq, KeyringStatus, Plan } from './harness.js';
+import type { ApplyResult, HarnessApplyReq, HarnessProfile, HarnessProfileListRes, HarnessDetectRes, HarnessKeyringStatusReq, HarnessPlanReq, HarnessRollbackReq, KeyringStatus, Plan } from './harness.js';
 
 // ---------- DTOs ----------
 export interface RegisterReq { username: string; password: string; email?: string; affCode?: string }
@@ -102,6 +102,9 @@ export interface IpcInvokeMap {
   'harness:rollback': { req: HarnessRollbackReq; res: ApplyResult };
   /** Entry presence only, never key values. */
   'harness:keyring:status': { req: HarnessKeyringStatusReq; res: KeyringStatus };
+  /** Profiles are the client SSOT (no secrets: keyId only). */
+  'harness:profile:list': { req: Empty; res: HarnessProfileListRes };
+  'harness:profile:upsert': { req: HarnessProfile; res: HarnessProfile };
 }
 export type InvokeChannel = keyof IpcInvokeMap;
 export type InvokeReq<C extends InvokeChannel> = IpcInvokeMap[C]['req'];
@@ -120,7 +123,7 @@ export const INVOKE_CHANNELS = [
   'keys:list', 'keys:create', 'keys:update', 'keys:delete', 'keys:copy', 'keys:reveal',
   'chat:complete', 'chat:stream:start', 'chat:stream:cancel',
   'config:get', 'config:set',
-  'harness:detect', 'harness:plan', 'harness:apply', 'harness:rollback', 'harness:keyring:status',
+  'harness:detect', 'harness:plan', 'harness:apply', 'harness:rollback', 'harness:keyring:status', 'harness:profile:list', 'harness:profile:upsert',
 ] as const satisfies readonly InvokeChannel[];
 
 // ---------- Events (main -> renderer) ----------

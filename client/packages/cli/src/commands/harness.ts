@@ -1,11 +1,15 @@
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { HARNESS_IDS, isHarnessId, type HarnessId } from '@pa/core';
-import { ControlledFs, createHarness, nodeExec, nodeFsOps, StateStore, type ExecFn } from '@pa/core/harness';
+import { readFile } from 'node:fs/promises';
+import { ControlledFs, createHarness, nodeExec, nodeFsOps, PiAdapter, StateStore, type ExecFn } from '@pa/core/harness';
+import type { HarnessProfile, RollbackTarget } from '@pa/core';
 import { accountFor, createKeyring, keyringStatus, type Keyring } from '@pa/key-helper';
 
 export const HARNESS_HELP = `pa harness detect | plan <id> --profile <pid> | apply <id> --profile <pid> --yes
-          | rollback <id> [--first-write] --yes | status | env-scan [--no-login-shell] | key-check <profileId> [<harness>]
+          | rollback <id> [--first-write | --detach | --snapshot <sid>] --yes | status | env-scan [--no-login-shell]
+          | key-check <profileId> [<harness>] | profile list | profile set <profile.json>
+  --helper <abs> pa-key path written into configs (default $PA_KEY_HELPER or <dataDir>/bin/pa-key)
   --home <dir>   use <dir> as HOME (tests: point at a temp dir); data dir defaults to <home>/.config/portable-agent-cli/harness`;
 
 export interface HarnessCliDeps {
@@ -38,9 +42,22 @@ export async function runHarness(argv: string[], d: HarnessCliDeps): Promise<num
   const state = new StateStore(fs);
   const keyring = d.keyring ?? createKeyring({ env });
   const platform = d.platform ?? process.platform;
+  const helperArg = take(args, '--helper') ?? env.PA_KEY_HELPER;
+  if (helperArg !== undefined && !isAbsolute(helperArg)) { d.err('--helper must be an absolute path'); return 1; }
+  const helperPath = helperArg ?? join(dataDir, 'bin', platform === 'win32' ? 'pa-key.cmd' : 'pa-key');
+  const henv = { home, env: { ...env, HOME: home }, platform };
+  const exec = d.exec ?? nodeExec;
+  const pi = new PiAdapter({
+    fs, state, env: henv, exec, helperPath, cwd: process.cwd(),
+    // The CLI cannot provision keys (no desktop session); command mode needs the entry to exist already.
+    beforeWrite: async (p) => {
+      if (p.keyMode !== 'command') return;
+      const ok = (await keyring.available()).ok && (await keyring.get(accountFor(p.id, 'pi')).catch(() => null)) !== null;
+      if (!ok) throw new Error('No keychain entry for this profile; enable it in Portable Agent first or use env key mode');
+    },
+  });
   const harness = createHarness({
-    fs, state, exec: d.exec ?? nodeExec,
-    env: { home, env: { ...env, HOME: home }, platform },
+    fs, state, exec, env: henv, adapters: { pi },
     keyringStatus: async (pid) => keyringStatus(keyring, pid !== undefined ? [pid] : Object.keys((await state.load()).profiles)),
   });
   const sub = args.shift();
@@ -55,9 +72,10 @@ export async function runHarness(argv: string[], d: HarnessCliDeps): Promise<num
       return 0;
     }
     case 'rollback': {
-      const h = id(); const first = has(args, '--first-write');
+      const h = id(); const sid = take(args, '--snapshot');
+      const target: RollbackTarget = has(args, '--first-write') ? 'first-write' : has(args, '--detach') ? 'detach' : sid ? { snapshotId: sid } : 'last';
       if (!has(args, '--yes')) { d.err('rollback requires --yes'); return 1; }
-      d.out(await harness.rollback(h, first ? 'first-write' : 'last'));
+      d.out(await harness.rollback(h, target));
       return 0;
     }
     case 'status': {
@@ -85,6 +103,18 @@ export async function runHarness(argv: string[], d: HarnessCliDeps): Promise<num
       }
       d.out({ available: true, backend: keyring.backend, profileId: pid, results });
       return results.every((r) => r.found) ? 0 : 1;
+    }
+    case 'profile': {
+      const op = args.shift();
+      if (op === 'list') { d.out({ profiles: await harness.listProfiles() }); return 0; }
+      if (op === 'set') {
+        const f = args.shift();
+        if (!f) { d.err('profile set needs a JSON file'); return 1; }
+        // Profiles hold a keyId, never a key; validateProfile drops unknown fields.
+        d.out(await harness.upsertProfile(JSON.parse(await readFile(f, 'utf8')) as HarnessProfile));
+        return 0;
+      }
+      d.err(HARNESS_HELP); return 1;
     }
     default: d.err(HARNESS_HELP); return 1;
   }

@@ -26,6 +26,21 @@ export interface HarnessProfile {
   keyMode: KeyMode;
   /** Provider id written into harness configs (default "pa"). */
   providerId?: string;
+  /** Env var name referenced in keyMode "env" (default PA_API_KEY). */
+  envVar?: string;
+  pi?: PiOptions;
+}
+
+export type PiApi = 'openai-completions' | 'anthropic-messages';
+export interface PiOptions {
+  /** Default openai-completions (/v1/chat/completions). */
+  api?: PiApi;
+  /** Model ids listed under the provider (default: models.main + models.small). */
+  models?: string[];
+  /** Model ids flagged `reasoning: true`. */
+  reasoning?: string[];
+  /** Write settings.json defaultProvider/defaultModel (default true). */
+  setDefault?: boolean;
 }
 
 export interface FileFingerprint { sha256: string; mtimeMs: number; size: number }
@@ -70,7 +85,8 @@ export interface Plan {
 }
 
 export interface ApplyResult { id: HarnessId; written: string[]; snapshotId?: string; warnings: string[] }
-export type RollbackTarget = 'last' | 'first-write' | { snapshotId: string };
+/** detach = remove only our managed settings (restoring the user's previous defaults); files stay. */
+export type RollbackTarget = 'last' | 'first-write' | 'detach' | { snapshotId: string };
 
 export interface HarnessAdapter {
   id: HarnessId;
@@ -112,3 +128,4 @@ export interface HarnessPlanReq { id: HarnessId; profileId: string }
 export interface HarnessApplyReq { id: HarnessId; plan: Plan; acknowledge?: ConflictAck[]; confirm: true }
 export interface HarnessRollbackReq { id: HarnessId; target: RollbackTarget; confirm: true }
 export interface HarnessKeyringStatusReq { profileId?: string }
+export interface HarnessProfileListRes { profiles: HarnessProfile[] }

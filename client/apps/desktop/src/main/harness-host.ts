@@ -1,5 +1,5 @@
 import { HARNESS_IDS, PaException, type Core, type HarnessId, type KeyringStatus } from '@pa/core';
-import { ControlledFs, createHarness, nodeExec, nodeFsOps, StateStore, type Harness } from '@pa/core/harness';
+import { ControlledFs, createHarness, nodeExec, nodeFsOps, PiAdapter, StateStore, type Harness } from '@pa/core/harness';
 import { accountFor, keyringStatus, type Keyring } from '@pa/key-helper';
 
 export interface HarnessHostOptions {
@@ -13,6 +13,9 @@ export interface HarnessHostOptions {
   helperPath: string;
   fs?: ControlledFs;
   exec?: typeof nodeExec;
+  /** Needed to provision keychain entries (command key mode) before a write. */
+  getCore?: () => Core;
+  cwd?: string;
 }
 
 /**
@@ -30,9 +33,19 @@ export class HarnessHost {
     this.state = new StateStore(fs);
     this.keyring = o.keyring;
     this.helperPath = o.helperPath;
+    const env = { home: o.home, env: o.env, platform: o.platform };
+    const exec = o.exec ?? nodeExec;
+    const pi = new PiAdapter({
+      fs, state: this.state, env, exec, helperPath: o.helperPath, ...(o.cwd ? { cwd: o.cwd } : {}),
+      beforeWrite: async (p) => {
+        if (p.keyMode !== 'command') return;
+        if (!o.getCore) throw new PaException({ code: 'VALIDATION', message: 'Cannot provision the key here' });
+        await this.provisionKey(o.getCore(), p.id, 'pi', p.keyId);
+      },
+      afterDetach: async (ids) => { for (const id of ids) await this.revokeKey(id, 'pi').catch(() => {}); },
+    });
     this.harness = createHarness({
-      fs, state: this.state, exec: o.exec ?? nodeExec,
-      env: { home: o.home, env: o.env, platform: o.platform },
+      fs, state: this.state, exec, env, adapters: { pi },
       keyringStatus: (profileId) => this.keyringStatus(profileId),
     });
   }
