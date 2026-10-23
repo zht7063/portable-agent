@@ -1,0 +1,15 @@
+{
+  "name": "@pa/cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev/test-only CLI for @pa/core. Not packaged into the desktop client.",
+  "type": "module",
+  "bin": { "pa": "dist/index.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "dev": "tsx --conditions=source src/index.ts"
+  },
+  "dependencies": { "@pa/core": "0.0.0" },
+  "devDependencies": { "tsx": "^4.19.2" }
+}

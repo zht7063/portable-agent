@@ -9,6 +9,7 @@
 |- trade-server/    // 交易系统
 |- harness/         // harness 
 |- usb-scripe/      // 集成U盘构建脚本
+|- client/          // Electron 客户端原型（见 client/README.md）
 ```
 
 ## 提交规范
