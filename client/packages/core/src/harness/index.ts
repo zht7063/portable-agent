@@ -3,7 +3,7 @@
  * Import via `@pa/core/harness`; renderer-safe types live in `@pa/core/contract`.
  */
 import { PaException } from '../contract/errors.js';
-import { HARNESS_IDS, type ApplyResult, type HarnessProfile, type ConflictAck, type Detection, type EnvScanResult, type HarnessAdapter, type HarnessId, type KeyringStatus, type Plan, type RollbackTarget } from '../contract/harness.js';
+import { HARNESS_IDS, type ApplyResult, type HarnessProfile, type ConflictAck, type Detection, type EnvScanResult, type HarnessAdapter, type HarnessId, type KeyringStatus, type Plan, type RollbackTarget, type HarnessHistory, type RollbackPreview } from '../contract/harness.js';
 import { ControlledFs } from './fs/controlled.js';
 import type { ExecFn } from './exec.js';
 import { HARNESS_ENV_VARS, scanEnv, type EnvScanOptions, type WatchedVar } from './env-scan.js';
@@ -106,6 +106,8 @@ export function createHarness(d: HarnessDeps) {
       return a.apply(plan, { acknowledge });
     },
     async rollback(id: HarnessId, target: RollbackTarget): Promise<ApplyResult> { return adapter(check(id)).rollback(target); },
+    async history(id: HarnessId): Promise<HarnessHistory> { return adapter(check(id)).history(); },
+    async previewRollback(id: HarnessId, target: RollbackTarget): Promise<RollbackPreview> { return adapter(check(id)).previewRollback(target); },
     async envScan(ids: HarnessId[] = [...HARNESS_IDS], expected: Record<string, string> = {}, o: EnvScanOptions = {}): Promise<EnvScanResult> {
       const watch: WatchedVar[] = ids.flatMap((id) => HARNESS_ENV_VARS[check(id)]).map((w) => (expected[w.name] !== undefined ? { ...w, expected: expected[w.name] } : w));
       return scanEnv(watch, {

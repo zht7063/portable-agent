@@ -3,7 +3,7 @@
  * Never writes a key; never reads auth files. See docs/harness.md.
  */
 import { PaException } from '../../contract/errors.js';
-import type { ApplyResult, ConflictAck, Conflict, Detection, FileFingerprint, HarnessAdapter, HarnessId, HarnessProfile, LiveSnapshot, Plan, PlannedKeyChange, RollbackTarget } from '../../contract/harness.js';
+import type { ApplyResult, ConflictAck, Conflict, Detection, FileFingerprint, HarnessAdapter, HarnessId, HarnessProfile, HarnessHistory, LiveSnapshot, Plan, RollbackPreview, ChangeKind, PlannedKeyChange, RollbackTarget } from '../../contract/harness.js';
 import type { ControlledFs } from '../fs/controlled.js';
 import type { ExecFn } from '../exec.js';
 import { getPath, mergeOwnedJson, parseJsonc, type JsonEdit } from '../merge/json.js';
@@ -212,6 +212,66 @@ export abstract class JsonHarnessAdapter implements HarnessAdapter {
       else { await this.o.fs.atomicWrite(e.path, e.data); written.push(e.path); }
     }
     return written;
+  }
+
+  async history(): Promise<HarnessHistory> {
+    const st = await this.o.state.load();
+    const onDisk = new Set(await this.o.fs.listSnapshots(this.id));
+    const snapshots = st.history.filter((h) => h.harness === this.id).reverse()
+      .map((h) => ({ snapshotId: h.snapshotId, at: h.at, action: h.action, available: onDisk.has(h.snapshotId) }));
+    const firstWrite = await this.o.fs.loadBackup(this.id, 'first-write').then(() => true, () => false);
+    return { id: this.id, snapshots, firstWrite, attached: this.configPaths().some((p) => st.files[p]?.harness === this.id) };
+  }
+
+  /** Dry run of rollback(target): masked diff of managed settings and file-level effect. Never writes. */
+  async previewRollback(target: RollbackTarget): Promise<RollbackPreview> {
+    const st = await this.o.state.load();
+    const files: RollbackPreview['files'] = [];
+    const changes: PlannedKeyChange[] = [];
+    const warnings: string[] = [];
+    let blocked: string | undefined;
+    const diff = (file: string, settings: Iterable<string>, before: unknown, after: unknown) => {
+      for (const s of [...new Set(settings)].sort()) {
+        const b = maskValue(getPath(before, undot(s))); const a = maskValue(getPath(after, undot(s)));
+        const kind: ChangeKind = b === a ? 'unchanged' : b === null ? 'create' : a === null ? 'remove' : 'modify';
+        if (kind !== 'unchanged') changes.push({ file, setting: s, kind, before: b, after: a });
+      }
+    };
+    if (target === 'detach') {
+      const mine = this.configPaths().filter((p) => st.files[p]?.harness === this.id);
+      if (!mine.length) warnings.push('Nothing to detach');
+      for (const path of mine) {
+        const l = await this.load(path); const e = st.files[path]!;
+        if (classifyChange(e, l.fp, hashOwnedValues(ownedValues(l.root, e.ownedSettings))) === 'conflict') blocked = 'Managed settings were changed outside Portable Agent; use rollback or edit the file manually';
+        const after = this.parseText(this.mergeText(l.text, e.ownedSettings.map((s) => ({ path: undot(s), value: e.original?.[s] ?? undefined }))));
+        diff(path, e.ownedSettings, l.root, after);
+        files.push({ path, kind: changes.some((c) => c.file === path) ? 'modify' : 'unchanged' });
+      }
+      return { id: this.id, target, files, changes, warnings, ...(blocked ? { blocked } : {}) };
+    }
+    let source: 'first-write' | { snapshotId: string };
+    let prior: HistoryEntry | undefined;
+    if (target === 'first-write') source = 'first-write';
+    else if (target === 'last') {
+      prior = [...st.history].reverse().find((h) => h.harness === this.id && h.action === 'apply');
+      if (!prior) return { id: this.id, target, files, changes, warnings, blocked: 'Nothing to roll back' };
+      source = { snapshotId: prior.snapshotId };
+    } else { source = { snapshotId: target.snapshotId }; prior = st.history.find((h) => h.harness === this.id && h.snapshotId === target.snapshotId); }
+    let entries;
+    try { entries = await this.o.fs.loadBackup(this.id, source); } catch { return { id: this.id, target, files, changes, warnings, blocked: 'Backup not found (it may have been pruned)' }; }
+    for (const e of entries) {
+      const cur = await this.load(e.path);
+      const exists = cur.fp !== null;
+      const bText = e.data === null ? null : new TextDecoder().decode(e.data);
+      const kind: ChangeKind = bText === null ? (exists ? 'remove' : 'unchanged') : !exists ? 'create' : bText === cur.text ? 'unchanged' : 'modify';
+      files.push({ path: e.path, kind });
+      const settings = [...(st.files[e.path]?.ownedSettings ?? []), ...(prior?.files?.[e.path]?.ownedSettings ?? [])];
+      let after: unknown = {};
+      try { after = bText === null ? {} : this.parseText(bText); } catch { warnings.push(`${e.path}: backup is not parseable; it will be restored byte-for-byte`); continue; }
+      diff(e.path, settings, cur.root, after);
+    }
+    if (files.some((f) => f.kind !== 'unchanged') && !changes.length) warnings.push('Only settings not managed by Portable Agent differ; the files will still be restored byte-for-byte');
+    return { id: this.id, target, files, changes, warnings };
   }
 
   async rollback(target: RollbackTarget): Promise<ApplyResult> {

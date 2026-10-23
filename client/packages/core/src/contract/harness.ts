@@ -101,6 +101,19 @@ export interface ApplyResult { id: HarnessId; written: string[]; snapshotId?: st
 /** detach = remove only our managed settings (restoring the user's previous defaults); files stay. */
 export type RollbackTarget = 'last' | 'first-write' | 'detach' | { snapshotId: string };
 
+/** Rollback history (newest first). Snapshot ids only; contents never leave main. */
+export interface HarnessSnapshotInfo { snapshotId: string; at: string; action: 'apply' | 'rollback' | 'detach'; /** false once pruned from disk. */ available: boolean }
+export interface HarnessHistory { id: HarnessId; snapshots: HarnessSnapshotInfo[]; firstWrite: boolean; /** We currently manage settings in at least one file. */ attached: boolean }
+/** Dry run of a rollback/detach: masked per-setting diff plus file-level effect. Nothing is written. */
+export interface RollbackPreview {
+  id: HarnessId; target: RollbackTarget;
+  files: { path: string; kind: ChangeKind }[];
+  changes: PlannedKeyChange[];
+  warnings: string[];
+  /** Set when the real rollback would be refused (e.g. detach after external edits). */
+  blocked?: string;
+}
+
 export interface HarnessAdapter {
   id: HarnessId;
   detect(): Promise<Detection>;
@@ -108,6 +121,8 @@ export interface HarnessAdapter {
   plan(profile: HarnessProfile): Promise<Plan>;
   apply(plan: Plan, opts: { acknowledge: ConflictAck[] }): Promise<ApplyResult>;
   rollback(target: RollbackTarget): Promise<ApplyResult>;
+  history(): Promise<HarnessHistory>;
+  previewRollback(target: RollbackTarget): Promise<RollbackPreview>;
 }
 
 // ---------- env scan ----------
@@ -139,6 +154,8 @@ export interface KeyringStatus {
 export interface HarnessDetectRes { harnesses: Detection[]; registered: HarnessId[] }
 export interface HarnessPlanReq { id: HarnessId; profileId: string }
 export interface HarnessApplyReq { id: HarnessId; plan: Plan; acknowledge?: ConflictAck[]; confirm: true }
+export interface HarnessHistoryReq { id: HarnessId }
+export interface HarnessRollbackPreviewReq { id: HarnessId; target: RollbackTarget }
 export interface HarnessRollbackReq { id: HarnessId; target: RollbackTarget; confirm: true }
 export interface HarnessKeyringStatusReq { profileId?: string }
 export interface HarnessProfileListRes { profiles: HarnessProfile[] }

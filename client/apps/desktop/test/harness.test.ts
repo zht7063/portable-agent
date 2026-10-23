@@ -167,5 +167,12 @@ describe('Pi via IPC (H1)', () => {
     expect(text).toContain('[model_providers.pa.auth]');
     expect(text).toContain('model_provider = "pa"');
     for (const f of [...(await filesUnder(t.home)), ...(await filesUnder(t.dataDir))]) expect(await readFile(f, 'utf8')).not.toContain(SECRET);
+    // H4: read-only history + preview over IPC; preview writes nothing and has no confirm gate
+    const hist = await dispatch(handlers, 'harness:history', { id: 'codex' });
+    expect(hist).toMatchObject({ ok: true, data: { attached: true, firstWrite: true, snapshots: [{ action: 'apply', available: true }] } });
+    const pv = await dispatch(handlers, 'harness:rollback:preview', { id: 'codex', target: 'detach' });
+    expect(pv.ok && pv.data.changes.length).toBeGreaterThan(0);
+    expect(await readFile(join(t.home, '.codex', 'config.toml'), 'utf8')).toBe(text);
+    expect(JSON.stringify(pv)).not.toContain(SECRET);
   });
 });

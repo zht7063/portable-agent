@@ -5,7 +5,7 @@
  */
 import type { Result } from './errors.js';
 import type { SessionView } from './session.js';
-import type { ApplyResult, HarnessApplyReq, HarnessChannelProbeReq, HarnessChannelStatus, HarnessProfile, HarnessProfileListRes, HarnessDetectRes, HarnessKeyringStatusReq, HarnessPlanReq, HarnessRollbackReq, KeyringStatus, Plan } from './harness.js';
+import type { ApplyResult, HarnessApplyReq, HarnessChannelProbeReq, HarnessChannelStatus, HarnessProfile, HarnessProfileListRes, HarnessDetectRes, HarnessKeyringStatusReq, HarnessPlanReq, HarnessRollbackReq, HarnessHistory, HarnessHistoryReq, HarnessRollbackPreviewReq, KeyringStatus, Plan, RollbackPreview } from './harness.js';
 
 // ---------- DTOs ----------
 export interface RegisterReq { username: string; password: string; email?: string; affCode?: string }
@@ -100,6 +100,10 @@ export interface IpcInvokeMap {
   'harness:apply': { req: HarnessApplyReq; res: ApplyResult };
   /** Requires confirm: true. */
   'harness:rollback': { req: HarnessRollbackReq; res: ApplyResult };
+  /** Read-only: snapshot list for the rollback UI. */
+  'harness:history': { req: HarnessHistoryReq; res: HarnessHistory };
+  /** Read-only dry run of a rollback; masked diff only. */
+  'harness:rollback:preview': { req: HarnessRollbackPreviewReq; res: RollbackPreview };
   /** Entry presence only, never key values. */
   'harness:keyring:status': { req: HarnessKeyringStatusReq; res: KeyringStatus };
   /** Profiles are the client SSOT (no secrets: keyId only). */
@@ -125,7 +129,7 @@ export const INVOKE_CHANNELS = [
   'keys:list', 'keys:create', 'keys:update', 'keys:delete', 'keys:copy', 'keys:reveal',
   'chat:complete', 'chat:stream:start', 'chat:stream:cancel',
   'config:get', 'config:set',
-  'harness:detect', 'harness:plan', 'harness:apply', 'harness:rollback', 'harness:keyring:status', 'harness:profile:list', 'harness:profile:upsert', 'harness:channel:probe',
+  'harness:detect', 'harness:plan', 'harness:apply', 'harness:rollback', 'harness:history', 'harness:rollback:preview', 'harness:keyring:status', 'harness:profile:list', 'harness:profile:upsert', 'harness:channel:probe',
 ] as const satisfies readonly InvokeChannel[];
 
 // ---------- Events (main -> renderer) ----------
