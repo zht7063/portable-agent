@@ -74,7 +74,19 @@ export function createHandlers({ getCore, getConfig, setConfig, copyToClipboard,
     },
     'harness:detect': async () => ({ harnesses: await harness.detect(), registered: harness.registered() }),
     'harness:plan': (r) => harness.plan(r.id, r.profileId),
-    'harness:apply': (r) => harness.apply(r.id, r.plan, r.acknowledge ?? []),
+    'harness:apply': async (r) => {
+      // Aegis: compare against the client's *current* server at apply time (the user may have switched servers since
+      // the profile was saved/confirmed). Foreign origin -> native confirmation (Cancel default); no dialog -> refuse.
+      const origin = (u: unknown) => { try { return typeof u === 'string' ? new URL(u).origin : ''; } catch { return ''; } };
+      const p = (await harness.listProfiles()).find((x) => x.id === r?.plan?.profileId);
+      if (p) {
+        const want = origin(p.serverUrl); const client = origin(getConfig().serverUrl);
+        if (want !== client && !(await confirmForeignServer?.(want, client))) {
+          throw new PaException({ code: 'CANCELLED', message: 'Profile server differs from the client server; not applied' });
+        }
+      }
+      return harness.apply(r.id, r.plan, r.acknowledge ?? []);
+    },
     'harness:rollback': (r) => harness.rollback(r.id, r.target, { overwriteExternal: r.overwriteExternal === true }),
     'harness:history': (r) => harness.history(r.id),
     'harness:rollback:preview': (r) => harness.previewRollback(r.id, r.target),

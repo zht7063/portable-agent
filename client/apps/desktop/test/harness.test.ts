@@ -208,3 +208,63 @@ describe('harness:profile:upsert server origin (Aegis #3)', () => {
     expect(await dispatch(c.handlers, 'harness:profile:upsert', p('https://x.example'))).toMatchObject({ ok: false });
   });
 });
+
+describe('harness:apply server origin at apply time (Aegis re-review)', () => {
+  const mk = (answer: boolean | undefined) => {
+    const vault = new MemoryKeyVault(); void vault.set(7, SECRET);
+    const core = createCore({ store: new MemoryTokenStore(), vault, fetch: async () => { throw new Error('no network in tests'); } });
+    const t = tmpHarnessHost(new MemoryKeyring(), () => core);
+    const cfg = { serverUrl: 'http://127.0.0.1:9', defaultMaxTokens: 2048, insecureTransport: true };
+    const asked: [string, string][] = [];
+    const handlers = createHandlers({ getCore: () => core, getConfig: () => cfg, setConfig: async () => cfg, copyToClipboard: () => {}, emitStream: () => {}, harness: t.host.harness,
+      ...(answer === undefined ? {} : { confirmForeignServer: async (a: string, b: string) => { asked.push([a, b]); return answer; } }) });
+    const apply = async () => {
+      const plan = await dispatch(handlers, 'harness:plan', { id: 'pi', profileId: 'default' });
+      if (!plan.ok) throw new Error('plan failed');
+      return dispatch(handlers, 'harness:apply', { id: 'pi', plan: plan.data, confirm: true });
+    };
+    return { handlers, asked, cfg, t, apply };
+  };
+  const prof = (serverUrl: string) => ({ id: 'default', serverUrl, keyId: 7, keyMode: 'command' as const, models: { main: 'deepseek-flash' } });
+  const written = async (home: string) => readFile(join(home, '.pi', 'agent', 'models.json'), 'utf8').catch(() => null);
+
+  it('same origin applies without asking', async () => {
+    const a = mk(false);
+    await a.t.host.harness.upsertProfile(prof('http://127.0.0.1:9/v1'));
+    expect((await a.apply()).ok).toBe(true);
+    expect(a.asked).toEqual([]);
+  });
+  it('foreign origin declined -> CANCELLED, nothing written', async () => {
+    const a = mk(false);
+    await a.t.host.harness.upsertProfile(prof('https://other.example'));
+    expect(await a.apply()).toMatchObject({ ok: false, error: { code: 'CANCELLED' } });
+    expect(a.asked).toEqual([['https://other.example', 'http://127.0.0.1:9']]);
+    expect(await written(a.t.home)).toBeNull();
+  });
+  it('foreign origin accepted -> applied', async () => {
+    const a = mk(true);
+    await a.t.host.harness.upsertProfile(prof('https://other.example'));
+    expect((await a.apply()).ok).toBe(true);
+    expect(await written(a.t.home)).toContain('https://other.example');
+  });
+  it('no dialog available -> refused', async () => {
+    const a = mk(undefined);
+    await a.t.host.harness.upsertProfile(prof('https://other.example'));
+    expect(await a.apply()).toMatchObject({ ok: false, error: { code: 'CANCELLED' } });
+    expect(await written(a.t.home)).toBeNull();
+  });
+  it('switch server: profile saved on A (no prompt), user moves to B, apply prompts again even though upsert was fine', async () => {
+    const a = mk(false);
+    expect((await dispatch(a.handlers, 'harness:profile:upsert', prof('http://127.0.0.1:9'))).ok).toBe(true);
+    expect(a.asked).toEqual([]);
+    a.cfg.serverUrl = 'https://b.example';
+    expect(await a.apply()).toMatchObject({ ok: false, error: { code: 'CANCELLED' } });
+    expect(a.asked).toEqual([['http://127.0.0.1:9', 'https://b.example']]);
+    expect(await written(a.t.home)).toBeNull();
+    // also after a confirmed foreign upsert: apply still compares against the current server and asks
+    const b = mk(true);
+    expect((await dispatch(b.handlers, 'harness:profile:upsert', prof('https://c.example'))).ok).toBe(true);
+    expect((await b.apply()).ok).toBe(true);
+    expect(b.asked).toHaveLength(2);
+  });
+});
