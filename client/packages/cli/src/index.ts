@@ -5,15 +5,21 @@
  *   PA_SERVER_URL, PA_USER, PA_PASS (login/register), PA_REDEEM_ENV (name of env var holding the code).
  */
 import { join } from 'node:path';
-import { createCore, DEFAULT_SERVER_URL, findCredentialLeaks, toPaError, type ChatMessage } from '@pa/core';
+import { createCore, DEFAULT_SERVER_URL, findCredentialLeaks, normalizeServerUrl, toPaError, type ChatMessage } from '@pa/core';
+import { CliConfig } from './config.js';
 import { FileKeyVault, FileTokenStore } from './stores/file.js';
 
 const HELP = `usage: pa <command>  (dev/test only)
+  config get | config set-url <url> | config reset   (PA_SERVER_URL env overrides saved URL)
   status | register | login | refresh | logout
   models [--key <id>] | balance | topup-info | redeem
   keys ls | keys new <name> | keys rename <id> <name> | keys toggle <id> | keys rm <id> | keys copy-check <id>
   chat [--stream] [--key <id>] [--max <n>] [--model <m>] <prompt>
 env: PA_SERVER_URL, PA_USER, PA_PASS, PA_REDEEM_ENV (env var NAME holding the redeem code), PA_CLI_DIR`;
+
+export async function effectiveUrl(c: CliConfig): Promise<string> {
+  return normalizeServerUrl(process.env.PA_SERVER_URL ?? (await c.load()).serverUrl ?? DEFAULT_SERVER_URL);
+}
 
 /** Print only credential-free data. */
 function out(v: unknown) {
@@ -38,7 +44,22 @@ export async function main(argv: string[]): Promise<number> {
   const dir = process.env.PA_CLI_DIR;
   const store = new FileTokenStore(dir ? join(dir, 'session.json') : undefined);
   const vault = new FileKeyVault(dir ? join(dir, 'keys.json') : undefined);
-  const core = createCore({ serverUrl: process.env.PA_SERVER_URL ?? DEFAULT_SERVER_URL, store, vault });
+  const cliConfig = new CliConfig(dir ? join(dir, 'config.json') : undefined);
+  if (cmd === 'config') {
+    const sub = args.shift();
+    if (sub === 'set-url') {
+      const url = normalizeServerUrl(args[0] ?? '');
+      const prev = await cliConfig.load();
+      await cliConfig.save({ serverUrl: url });
+      // Switching servers invalidates the stored session and cached keys.
+      if (prev.serverUrl !== url) { await store.clear(); await vault.clear(); }
+    } else if (sub === 'reset') {
+      await cliConfig.clear(); await store.clear(); await vault.clear();
+    } else if (sub !== 'get') { console.error(HELP); return 1; }
+    out({ saved: (await cliConfig.load()).serverUrl ?? null, effective: await effectiveUrl(cliConfig) });
+    return 0;
+  }
+  const core = createCore({ serverUrl: await effectiveUrl(cliConfig), store, vault });
   if (core.http.insecure) console.error('warning: plain HTTP – prototype only, use test accounts');
   if (cmd !== 'help' && cmd !== 'register' && cmd !== 'login') await core.session.restore();
 
@@ -105,7 +126,7 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-main(process.argv.slice(2)).then(
+if (process.argv[1] && /(?:^|[\\/])index\.(?:ts|js)$/.test(process.argv[1])) main(process.argv.slice(2)).then(
   (code) => process.exit(code),
   (e) => { const p = toPaError(e); console.error(p.code === 'SERVER' && e instanceof Error && !('error' in e) ? e.message : `${p.code}: ${p.message}`); process.exit(1); },
 );

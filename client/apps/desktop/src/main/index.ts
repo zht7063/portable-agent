@@ -1,11 +1,12 @@
 import { app, BrowserWindow, clipboard, ipcMain, session as electronSession, shell } from 'electron';
 import { join } from 'node:path';
-import { createCore, DEFAULT_SERVER_URL, PaException, INVOKE_CHANNELS, type ClientConfig, type InvokeChannel } from '@pa/core';
+import { DEFAULT_SERVER_URL, INVOKE_CHANNELS, type InvokeChannel } from '@pa/core';
 import { createTokenStore } from './safe-storage-store';
-import { createHandlers, defaultConfig, dispatch } from './ipc/handlers';
+import { createHandlers, dispatch } from './ipc/handlers';
+import { ConfigStore } from './config-store';
+import { CoreHost } from './core-host';
 
 let win: BrowserWindow | null = null;
-let config: ClientConfig = defaultConfig(process.env.PA_SERVER_URL ?? DEFAULT_SERVER_URL); // M3a: persist in userData/config.json
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -34,32 +35,25 @@ app.whenReady().then(async () => {
   // Renderer never talks to the network; deny all permission requests.
   electronSession.defaultSession.setPermissionRequestHandler((_wc, _p, cb) => cb(false));
 
-  const store = createTokenStore(join(app.getPath('userData'), 'session.bin'));
-  const core = createCore({ serverUrl: config.serverUrl, store });
+  const userData = app.getPath('userData');
+  const host = await CoreHost.start({
+    // PA_SERVER_URL only seeds the default; a saved config.json wins.
+    configStore: new ConfigStore(join(userData, 'config.json'), process.env.PA_SERVER_URL ?? DEFAULT_SERVER_URL),
+    tokenStore: createTokenStore(join(userData, 'session.bin')),
+    onSessionChange: (v) => win?.webContents.send('session:changed', v),
+  });
   const handlers = createHandlers({
-    core,
-    getConfig: () => config,
-    setConfig: (patch) => {
-      const serverUrl = (patch.serverUrl ?? config.serverUrl).trim().replace(/\/+$/, '');
-      if (!/^https?:\/\//.test(serverUrl)) throw new PaException({ code: 'VALIDATION', message: 'Server URL must start with http:// or https://' });
-      if (serverUrl !== config.serverUrl) {
-        // Switching servers: drop the session for the old server (M3a: persist config).
-        void core.session.clear();
-        core.http.baseUrl = serverUrl;
-        core.session.setServerUrl(serverUrl);
-      }
-      config = { ...config, ...patch, serverUrl, insecureTransport: !serverUrl.startsWith('https://') };
-      return config;
-    },
+    getCore: () => host.core,
+    getConfig: () => host.config(),
+    setConfig: (patch) => host.set(patch),
     copyToClipboard: (t) => clipboard.writeText(t),
     emitStream: (e) => win?.webContents.send('chat:stream:event', e),
   });
   for (const ch of INVOKE_CHANNELS) {
     ipcMain.handle(ch, (_e, req) => dispatch(handlers, ch as InvokeChannel, req));
   }
+  // Handlers are registered before the renderer loads, so its first invoke never races.
   win = createWindow();
-  core.session.onChange((v) => win?.webContents.send('session:changed', v));
-  await core.session.restore();
 });
 
 app.on('window-all-closed', () => app.quit());

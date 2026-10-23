@@ -9,6 +9,7 @@ export * from './models/index.js';
 export * from './keys/index.js';
 export * from './chat/index.js';
 export { SseParser } from './chat/sse.js';
+export { normalizeServerUrl, validateMaxTokens, MAX_TOKENS_RANGE } from './config.js';
 
 import { PaException } from './contract/errors.js';
 import type { TokenStore } from './contract/session.js';

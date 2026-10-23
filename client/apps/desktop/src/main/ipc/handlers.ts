@@ -1,6 +1,5 @@
 import {
   CREDENTIAL_EXCEPTION_CHANNELS,
-  DEFAULT_MAX_TOKENS,
   INVOKE_CHANNELS,
   err,
   findCredentialLeaks,
@@ -9,6 +8,7 @@ import {
   toPaError,
   type ChatStreamEvent,
   type ClientConfig,
+  type ConfigSetReq,
   type Core,
   type InvokeChannel,
   type InvokeReq,
@@ -20,17 +20,19 @@ type Handler<C extends InvokeChannel> = (req: InvokeReq<C>) => Promise<IpcInvoke
 export type HandlerMap = { [C in InvokeChannel]: Handler<C> };
 
 export interface HandlerDeps {
-  core: Core;
+  /** Current core (may be recreated when the server URL changes). */
+  getCore(): Core;
   getConfig(): ClientConfig;
-  setConfig(patch: Partial<ClientConfig>): ClientConfig;
+  setConfig(patch: ConfigSetReq): Promise<ClientConfig>;
   copyToClipboard(text: string): void;
   /** Push a chat:stream:event to the renderer. */
   emitStream(e: ChatStreamEvent): void;
 }
 
 /** Pure (no electron import) so it is unit-testable. */
-export function createHandlers({ core, getConfig, setConfig, copyToClipboard, emitStream }: HandlerDeps): HandlerMap {
+export function createHandlers({ getCore, getConfig, setConfig, copyToClipboard, emitStream }: HandlerDeps): HandlerMap {
   const streams = new Map<string, AbortController>();
+  const core = new Proxy({} as Core, { get: (_t, k) => getCore()[k as keyof Core] });
   const withMax = <T extends { maxTokens?: number }>(r: T): T => ({ ...r, maxTokens: r.maxTokens ?? getConfig().defaultMaxTokens });
   return {
     'auth:register': (r) => core.auth.register(r),
@@ -58,7 +60,10 @@ export function createHandlers({ core, getConfig, setConfig, copyToClipboard, em
     },
     'chat:stream:cancel': async (r) => { streams.get(r.reqId)?.abort(); return {}; },
     'config:get': async () => getConfig(),
-    'config:set': async (r) => setConfig(r),
+    'config:set': async (r) => {
+      for (const ac of streams.values()) ac.abort(); // streams belong to the old server
+      return setConfig(r);
+    },
   };
 }
 
@@ -77,8 +82,3 @@ export async function dispatch<C extends InvokeChannel>(handlers: HandlerMap, ch
   }
 }
 
-export const defaultConfig = (serverUrl: string): ClientConfig => ({
-  serverUrl,
-  defaultMaxTokens: DEFAULT_MAX_TOKENS,
-  insecureTransport: !serverUrl.startsWith('https://'),
-});

@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { INVOKE_CHANNELS, MemoryKeyVault, MemoryTokenStore, createCore, type ChatStreamEvent } from '@pa/core';
-import { createHandlers, defaultConfig, dispatch } from '../src/main/ipc/handlers';
+import { createHandlers, dispatch } from '../src/main/ipc/handlers';
 
 function setup(fetchImpl?: typeof fetch) {
   const vault = new MemoryKeyVault();
   void vault.set(2, 'sk-' + 'A'.repeat(48));
   const core = createCore({ store: new MemoryTokenStore(), vault, fetch: fetchImpl });
   const events: ChatStreamEvent[] = [];
-  let cfg = defaultConfig('http://38.246.253.190:3000');
+  let cfg = { serverUrl: 'http://38.246.253.190:3000', defaultMaxTokens: 2048, insecureTransport: true };
   const copied: string[] = [];
-  const handlers = createHandlers({ core, getConfig: () => cfg, setConfig: (p) => (cfg = { ...cfg, ...p }), copyToClipboard: (t) => copied.push(t), emitStream: (e) => events.push(e) });
+  const handlers = createHandlers({ getCore: () => core, getConfig: () => cfg, setConfig: async (p) => (cfg = { ...cfg, ...p }), copyToClipboard: (t) => copied.push(t), emitStream: (e) => events.push(e) });
   return { core, handlers, copied, events };
 }
 
