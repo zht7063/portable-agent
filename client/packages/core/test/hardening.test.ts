@@ -89,7 +89,7 @@ describe('redaction', () => {
   });
   it('server error messages are redacted before reaching callers', async () => {
     const { core } = setup({ 'POST /api/user/login': () => json({ success: false, message: 'dial tcp 172.17.0.2:5432: connection refused' }, { status: 500 }) });
-    const err = await core.auth.login({ username: 'tester', password: 'longenough1' }).catch((e) => toPaError(e));
+    const err = await core.auth.login({ username: 'tester', password: 'longenough1' }).then(() => { throw new Error('expected failure'); }, (e: unknown) => toPaError(e));
     expect(err.message).not.toContain('172.17.0.2');
   });
 });
