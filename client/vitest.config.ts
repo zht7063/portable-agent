@@ -9,6 +9,8 @@ export default defineConfig({
     // Tests run against core sources (no build step needed).
     alias: [
       { find: /^@pa\/core\/contract$/, replacement: core('contract/index.ts') },
+      { find: /^@pa\/core\/harness$/, replacement: core('harness/index.ts') },
+      { find: /^@pa\/key-helper$/, replacement: fileURLToPath(new URL('./packages/key-helper/src/index.ts', import.meta.url)) },
       { find: /^@pa\/core$/, replacement: core('index.ts') },
     ],
   },

@@ -5,6 +5,7 @@
  */
 import type { Result } from './errors.js';
 import type { SessionView } from './session.js';
+import type { ApplyResult, HarnessApplyReq, HarnessDetectRes, HarnessKeyringStatusReq, HarnessPlanReq, HarnessRollbackReq, KeyringStatus, Plan } from './harness.js';
 
 // ---------- DTOs ----------
 export interface RegisterReq { username: string; password: string; email?: string; affCode?: string }
@@ -92,12 +93,24 @@ export interface IpcInvokeMap {
   'chat:stream:cancel': { req: ChatStreamCancelReq; res: Empty };
   'config:get': { req: Empty; res: ClientConfig };
   'config:set': { req: ConfigSetReq; res: ClientConfig };
+  'harness:detect': { req: Empty; res: HarnessDetectRes };
+  /** Masked diff only. */
+  'harness:plan': { req: HarnessPlanReq; res: Plan };
+  /** Requires confirm: true. */
+  'harness:apply': { req: HarnessApplyReq; res: ApplyResult };
+  /** Requires confirm: true. */
+  'harness:rollback': { req: HarnessRollbackReq; res: ApplyResult };
+  /** Entry presence only, never key values. */
+  'harness:keyring:status': { req: HarnessKeyringStatusReq; res: KeyringStatus };
 }
 export type InvokeChannel = keyof IpcInvokeMap;
 export type InvokeReq<C extends InvokeChannel> = IpcInvokeMap[C]['req'];
 export type InvokeRes<C extends InvokeChannel> = Result<IpcInvokeMap[C]['res']>;
 
 /** Channels allowed to return credential material (allowlist, reviewed). */
+/** Channels that mutate user files and require `confirm: true` in the request. */
+export const CONFIRM_REQUIRED_CHANNELS = ['keys:reveal', 'harness:apply', 'harness:rollback'] as const;
+
 export const CREDENTIAL_EXCEPTION_CHANNELS = ['keys:reveal'] as const;
 
 export const INVOKE_CHANNELS = [
@@ -107,6 +120,7 @@ export const INVOKE_CHANNELS = [
   'keys:list', 'keys:create', 'keys:update', 'keys:delete', 'keys:copy', 'keys:reveal',
   'chat:complete', 'chat:stream:start', 'chat:stream:cancel',
   'config:get', 'config:set',
+  'harness:detect', 'harness:plan', 'harness:apply', 'harness:rollback', 'harness:keyring:status',
 ] as const satisfies readonly InvokeChannel[];
 
 // ---------- Events (main -> renderer) ----------

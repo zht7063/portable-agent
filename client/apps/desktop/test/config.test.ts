@@ -6,6 +6,7 @@ import { MemoryTokenStore, createCore, normalizeServerUrl, type SessionView } fr
 import { ConfigStore } from '../src/main/config-store';
 import { CoreHost } from '../src/main/core-host';
 import { createHandlers, dispatch } from '../src/main/ipc/handlers';
+import { tmpHarnessHost } from './harness-fixture';
 
 const DEF = 'http://38.246.253.190:3000';
 const tmp = async () => join(await mkdtemp(join(tmpdir(), 'pa-cfg-')), 'config.json');
@@ -104,7 +105,7 @@ describe('CoreHost', () => {
   it('invalid URL via IPC returns VALIDATION and changes nothing', async () => {
     const p = await tmp();
     const { h } = await host(p);
-    const handlers = createHandlers({ getCore: () => h.core, getConfig: () => h.config(), setConfig: (x) => h.set(x), copyToClipboard: () => {}, emitStream: () => {} });
+    const handlers = createHandlers({ getCore: () => h.core, getConfig: () => h.config(), setConfig: (x) => h.set(x), copyToClipboard: () => {}, emitStream: () => {}, harness: tmpHarnessHost().host.harness });
     expect(await dispatch(handlers, 'config:set', { serverUrl: 'javascript:alert(1)' })).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
     expect(h.config().serverUrl).toBe(DEF);
     await expect(readFile(p, 'utf8')).rejects.toThrow();

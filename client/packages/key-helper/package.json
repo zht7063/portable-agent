@@ -1,0 +1,27 @@
+{
+  "name": "@pa/key-helper",
+  "version": "0.0.0",
+  "private": true,
+  "description": "pa-key: prints a harness API key from the OS keychain to stdout. Shipped with the desktop client; runs without the desktop app.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "pa-key": "dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "@pa/core": "0.0.0",
+    "@napi-rs/keyring": "^2.1.2"
+  }
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { INVOKE_CHANNELS, MemoryKeyVault, MemoryTokenStore, createCore, type ChatStreamEvent } from '@pa/core';
 import { createHandlers, dispatch } from '../src/main/ipc/handlers';
+import { tmpHarnessHost } from './harness-fixture';
 
 function setup(fetchImpl?: typeof fetch) {
   const vault = new MemoryKeyVault();
@@ -9,7 +10,7 @@ function setup(fetchImpl?: typeof fetch) {
   const events: ChatStreamEvent[] = [];
   let cfg = { serverUrl: 'http://38.246.253.190:3000', defaultMaxTokens: 2048, insecureTransport: true };
   const copied: string[] = [];
-  const handlers = createHandlers({ getCore: () => core, getConfig: () => cfg, setConfig: async (p) => (cfg = { ...cfg, ...p }), copyToClipboard: (t) => copied.push(t), emitStream: (e) => events.push(e) });
+  const handlers = createHandlers({ getCore: () => core, getConfig: () => cfg, setConfig: async (p) => (cfg = { ...cfg, ...p }), copyToClipboard: (t) => copied.push(t), emitStream: (e) => events.push(e), harness: tmpHarnessHost().host.harness });
   return { core, handlers, copied, events };
 }
 

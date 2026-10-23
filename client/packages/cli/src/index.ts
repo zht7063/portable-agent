@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { createCore, DEFAULT_SERVER_URL, findCredentialLeaks, normalizeServerUrl, redact, toPaError, type ChatMessage } from '@pa/core';
 import { CliConfig } from './config.js';
 import { FileKeyVault, FileTokenStore } from './stores/file.js';
+import { HARNESS_HELP, runHarness } from './commands/harness.js';
 
 const HELP = `usage: pa <command>  (dev/test only)
   config get | config set-url <url> | config reset   (PA_SERVER_URL env overrides saved URL)
@@ -15,6 +16,7 @@ const HELP = `usage: pa <command>  (dev/test only)
   models [--key <id>] | balance | topup-info | redeem
   keys ls | keys new <name> | keys rename <id> <name> | keys toggle <id> | keys rm <id> | keys copy-check <id>
   chat [--stream] [--key <id>] [--max <n>] [--model <m>] <prompt>
+  ${HARNESS_HELP}
 env: PA_SERVER_URL, PA_USER, PA_PASS, PA_REDEEM_ENV (env var NAME holding the redeem code), PA_CLI_DIR`;
 
 export async function effectiveUrl(c: CliConfig): Promise<string> {
@@ -45,6 +47,7 @@ export async function main(argv: string[]): Promise<number> {
   const store = new FileTokenStore(dir ? join(dir, 'session.json') : undefined);
   const vault = new FileKeyVault(dir ? join(dir, 'keys.json') : undefined);
   const cliConfig = new CliConfig(dir ? join(dir, 'config.json') : undefined);
+  if (cmd === 'harness') return runHarness(args, { out, err: (s) => console.error(s) });
   if (cmd === 'config') {
     const sub = args.shift();
     if (sub === 'set-url') {

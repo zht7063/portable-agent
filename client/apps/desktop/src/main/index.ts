@@ -7,6 +7,9 @@ import { createTokenStore } from './safe-storage-store';
 import { createHandlers, dispatch } from './ipc/handlers';
 import { ConfigStore } from './config-store';
 import { CoreHost } from './core-host';
+import { HarnessHost } from './harness-host';
+import { createKeyring, installWrapper } from '@pa/key-helper';
+import { homedir } from 'node:os';
 
 let win: BrowserWindow | null = null;
 
@@ -71,7 +74,16 @@ app.whenReady().then(async () => {
     tokenStore: createTokenStore(join(userData, 'session.bin')),
     onSessionChange: (v) => win?.webContents.send('session:changed', v),
   });
+  // D4: pa-key wrapper lives in the client's own directory; harness configs reference its absolute path.
+  const helperScript = join(__dirname, '../key-helper/pa-key.cjs');
+  let helperPath = join(userData, 'bin', process.platform === 'win32' ? 'pa-key.cmd' : 'pa-key');
+  try { helperPath = await installWrapper({ dir: join(userData, 'bin'), execPath: process.execPath, scriptPath: helperScript }); }
+  catch { /* harness panel reports the helper as missing */ }
+  const harnessHost = new HarnessHost({
+    home: homedir(), dataDir: userData, env: process.env, platform: process.platform, keyring: createKeyring(), helperPath,
+  });
   const handlers = createHandlers({
+    harness: harnessHost.harness,
     getCore: () => host.core,
     getConfig: () => host.config(),
     setConfig: (patch) => host.set(patch),

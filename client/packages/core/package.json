@@ -6,11 +6,27 @@
   "main": "dist/index.js",
   "types": "src/index.ts",
   "exports": {
-    ".": { "source": "./src/index.ts", "types": "./src/index.ts", "default": "./dist/index.js" },
-    "./contract": { "source": "./src/contract/index.ts", "types": "./src/contract/index.ts", "default": "./dist/contract/index.js" }
+    ".": {
+      "source": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./contract": {
+      "source": "./src/contract/index.ts",
+      "types": "./src/contract/index.ts",
+      "default": "./dist/contract/index.js"
+    },
+    "./harness": {
+      "source": "./src/harness/index.ts",
+      "types": "./src/harness/index.ts",
+      "default": "./dist/harness/index.js"
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
+  },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1"
   }
 }

@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/main/index.cjs",
   "scripts": {
-    "build:main": "esbuild src/main/index.ts --bundle --platform=node --format=cjs --external:electron --conditions=source --outfile=dist/main/index.cjs && esbuild src/preload/index.ts --bundle --platform=node --format=cjs --external:electron --conditions=source --outfile=dist/preload/index.cjs",
+    "build:main": "esbuild src/main/index.ts --bundle --platform=node --format=cjs --external:electron --conditions=source --main-fields=module,main --outfile=dist/main/index.cjs && esbuild src/preload/index.ts --bundle --platform=node --format=cjs --external:electron --conditions=source --main-fields=module,main --outfile=dist/preload/index.cjs && esbuild ../../packages/key-helper/src/main.ts --bundle --platform=node --format=cjs --external:@napi-rs/keyring --conditions=source --main-fields=module,main --outfile=dist/key-helper/pa-key.cjs",
     "build:renderer": "vite build",
     "build": "npm run build:main && npm run build:renderer",
     "start": "npm run build && electron .",
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@pa/core": "0.0.0",
+    "@pa/key-helper": "0.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

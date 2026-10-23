@@ -1,4 +1,5 @@
 import {
+  CONFIRM_REQUIRED_CHANNELS,
   CREDENTIAL_EXCEPTION_CHANNELS,
   INVOKE_CHANNELS,
   err,
@@ -15,6 +16,7 @@ import {
   type InvokeRes,
   type IpcInvokeMap,
 } from '@pa/core';
+import type { Harness } from '@pa/core/harness';
 
 type Handler<C extends InvokeChannel> = (req: InvokeReq<C>) => Promise<IpcInvokeMap[C]['res']>;
 export type HandlerMap = { [C in InvokeChannel]: Handler<C> };
@@ -27,10 +29,11 @@ export interface HandlerDeps {
   copyToClipboard(text: string): void;
   /** Push a chat:stream:event to the renderer. */
   emitStream(e: ChatStreamEvent): void;
+  harness: Harness;
 }
 
 /** Pure (no electron import) so it is unit-testable. */
-export function createHandlers({ getCore, getConfig, setConfig, copyToClipboard, emitStream }: HandlerDeps): HandlerMap {
+export function createHandlers({ getCore, getConfig, setConfig, copyToClipboard, emitStream, harness }: HandlerDeps): HandlerMap {
   const streams = new Map<string, AbortController>();
   const core = new Proxy({} as Core, { get: (_t, k) => getCore()[k as keyof Core] });
   const withMax = <T extends { maxTokens?: number }>(r: T): T => ({ ...r, maxTokens: r.maxTokens ?? getConfig().defaultMaxTokens });
@@ -64,6 +67,11 @@ export function createHandlers({ getCore, getConfig, setConfig, copyToClipboard,
       for (const ac of streams.values()) ac.abort(); // streams belong to the old server
       return setConfig(r);
     },
+    'harness:detect': async () => ({ harnesses: await harness.detect(), registered: harness.registered() }),
+    'harness:plan': (r) => harness.plan(r.id, r.profileId),
+    'harness:apply': (r) => harness.apply(r.id, r.plan, r.acknowledge ?? []),
+    'harness:rollback': (r) => harness.rollback(r.id, r.target),
+    'harness:keyring:status': (r) => harness.keyringStatus(r?.profileId),
   };
 }
 
@@ -72,7 +80,9 @@ const exempt = new Set<string>(CREDENTIAL_EXCEPTION_CHANNELS);
 /** Wraps a handler: validates channel, converts errors to Result, guards against credential leaks. */
 export async function dispatch<C extends InvokeChannel>(handlers: HandlerMap, channel: C, req: InvokeReq<C>): Promise<InvokeRes<C>> {
   if (!(INVOKE_CHANNELS as readonly string[]).includes(channel)) return err('VALIDATION', 'Unknown channel');
-  if (channel === 'keys:reveal' && (req as { confirm?: unknown })?.confirm !== true) return err('VALIDATION', 'Reveal requires explicit confirmation');
+  if ((CONFIRM_REQUIRED_CHANNELS as readonly string[]).includes(channel) && (req as { confirm?: unknown })?.confirm !== true) {
+    return err('VALIDATION', channel === 'keys:reveal' ? 'Reveal requires explicit confirmation' : 'This action requires explicit confirmation');
+  }
   try {
     const data = await (handlers[channel] as Handler<C>)(req);
     if (!exempt.has(channel) && findCredentialLeaks(data).length) return err('SERVER', 'Blocked: response contained credential material');
