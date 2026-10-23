@@ -1,25 +1,48 @@
 import { useEffect, useState } from 'react';
 import type { ClientConfig, SessionView } from '@pa/core/contract';
+import { call } from './api';
+import { AuthPanel } from './panels/AuthPanel';
+import { BillingPanel } from './panels/BillingPanel';
+import { KeysPanel } from './panels/KeysPanel';
+import { ChatPanel } from './panels/ChatPanel';
+import { SettingsPanel } from './panels/SettingsPanel';
 
 export function App() {
   const [session, setSession] = useState<SessionView | null>(null);
   const [config, setConfig] = useState<ClientConfig | null>(null);
+  const [keyId, setKeyId] = useState<number | undefined>();
 
   useEffect(() => {
-    void window.pa.invoke('auth:session', {}).then((r) => r.ok && setSession(r.data));
-    void window.pa.invoke('config:get', {}).then((r) => r.ok && setConfig(r.data));
+    void call('auth:session', {}).then(setSession);
+    void call('config:get', {}).then(setConfig);
     return window.pa.on('session:changed', setSession);
   }, []);
 
+  const authed = session?.status === 'authenticated' || session?.status === 'refreshing';
   return (
-    <main style={{ fontFamily: 'system-ui', padding: 24 }}>
+    <main style={{ fontFamily: 'system-ui', padding: 16, maxWidth: 960, margin: '0 auto' }}>
       {config?.insecureTransport && (
-        <div role="alert" style={{ background: '#fde68a', padding: 8 }}>
+        <div role="alert" style={{ background: '#fde68a', padding: 8, marginBottom: 8 }}>
           ⚠️ 明文 HTTP 原型：仅限测试账号（{config.serverUrl}）
         </div>
       )}
-      <h1>Portable Agent（M0 原型）</h1>
-      <p>会话状态：{session?.status ?? '…'} · 存储：{session?.storage ?? '…'}</p>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 style={{ margin: 0 }}>Portable Agent</h2>
+        <span>
+          {session?.username ? `${session.username} · ` : ''}{session?.status ?? '…'} · 存储 {session?.storage ?? '…'}
+          {authed && <button style={{ marginLeft: 8 }} onClick={() => void call('auth:logout', {}).then(setSession)}>退出</button>}
+        </span>
+      </header>
+      <SettingsPanel config={config} onChange={setConfig} />
+      {!authed ? (
+        <AuthPanel onSession={setSession} />
+      ) : (
+        <>
+          <BillingPanel />
+          <KeysPanel selected={keyId} onSelect={setKeyId} />
+          <ChatPanel keyId={keyId} defaultMaxTokens={config?.defaultMaxTokens ?? 2048} />
+        </>
+      )}
     </main>
   );
 }

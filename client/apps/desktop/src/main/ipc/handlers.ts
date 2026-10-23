@@ -5,7 +5,9 @@ import {
   err,
   findCredentialLeaks,
   ok,
+  PaException,
   toPaError,
+  type ChatStreamEvent,
   type ClientConfig,
   type Core,
   type InvokeChannel,
@@ -22,10 +24,14 @@ export interface HandlerDeps {
   getConfig(): ClientConfig;
   setConfig(patch: Partial<ClientConfig>): ClientConfig;
   copyToClipboard(text: string): void;
+  /** Push a chat:stream:event to the renderer. */
+  emitStream(e: ChatStreamEvent): void;
 }
 
-/** Pure (no electron import) so it is unit-testable. Module calls are M0 stubs. */
-export function createHandlers({ core, getConfig, setConfig, copyToClipboard }: HandlerDeps): HandlerMap {
+/** Pure (no electron import) so it is unit-testable. */
+export function createHandlers({ core, getConfig, setConfig, copyToClipboard, emitStream }: HandlerDeps): HandlerMap {
+  const streams = new Map<string, AbortController>();
+  const withMax = <T extends { maxTokens?: number }>(r: T): T => ({ ...r, maxTokens: r.maxTokens ?? getConfig().defaultMaxTokens });
   return {
     'auth:register': (r) => core.auth.register(r),
     'auth:login': (r) => core.auth.login(r),
@@ -41,9 +47,16 @@ export function createHandlers({ core, getConfig, setConfig, copyToClipboard }: 
     'keys:delete': (r) => core.keys.delete(r),
     'keys:copy': async (r) => { copyToClipboard(await core.keys.secret(r.id)); return {}; },
     'keys:reveal': (r) => core.keys.reveal(r.id),
-    'chat:complete': (r) => core.chat.complete({ ...r, maxTokens: r.maxTokens ?? getConfig().defaultMaxTokens }),
-    'chat:stream:start': async (r) => ({ reqId: r.reqId }), // M1e/M3a: start stream, emit chat:stream:event
-    'chat:stream:cancel': async () => ({}),
+    'chat:complete': (r) => core.chat.complete(withMax(r)),
+    'chat:stream:start': async (r) => {
+      if (!r.reqId || streams.has(r.reqId)) throw new PaException({ code: 'VALIDATION', message: 'Invalid or duplicate reqId' });
+      const ac = new AbortController();
+      streams.set(r.reqId, ac);
+      // Fire and forget: events flow via emitStream; chat.stream never throws.
+      void core.chat.stream(withMax(r), emitStream, ac.signal).finally(() => streams.delete(r.reqId));
+      return { reqId: r.reqId };
+    },
+    'chat:stream:cancel': async (r) => { streams.get(r.reqId)?.abort(); return {}; },
     'config:get': async () => getConfig(),
     'config:set': async (r) => setConfig(r),
   };

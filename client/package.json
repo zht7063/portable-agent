@@ -1,13 +1,20 @@
 {
   "name": "portable-agent-client",
   "private": true,
-  "workspaces": ["packages/core", "packages/cli", "apps/desktop"],
-  "engines": { "node": ">=22" },
+  "workspaces": [
+    "packages/core",
+    "packages/cli",
+    "apps/desktop"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "typecheck": "npm run typecheck --workspaces",
     "lint": "eslint .",
     "test": "vitest run",
-    "build": "npm run build --workspaces --if-present"
+    "build": "npm run build --workspaces --if-present",
+    "test:live": "vitest run -c vitest.live.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.14.0",

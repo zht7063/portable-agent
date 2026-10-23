@@ -17,3 +17,17 @@ describe('FileTokenStore', () => {
     expect(await s.load()).toBeNull();
   });
 });
+
+import { FileKeyVault } from '../src/stores/file.js';
+describe('FileKeyVault', () => {
+  it('set/get/delete with 0600', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pa-'));
+    const v = new FileKeyVault(join(dir, 'k.json'));
+    expect(await v.get(1)).toBeNull();
+    await v.set(1, 'sk-x');
+    expect(await v.has(1)).toBe(true);
+    expect((await stat(v.path)).mode & 0o777).toBe(0o600);
+    await v.delete(1);
+    expect(await v.get(1)).toBeNull();
+  });
+});

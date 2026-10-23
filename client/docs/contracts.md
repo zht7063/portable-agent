@@ -68,3 +68,10 @@ PaErrorCode = NETWORK | TIMEOUT | UNAUTHORIZED | SESSION_EXPIRED | RATE_LIMITED 
 1. **类型层面**：`test/ipc-contract.test.ts` 检查所有 invoke 响应（`keys:reveal` 除外）和事件中，没有 `ForbiddenField`（如 accessToken / refreshCookie / cookie / token / key / secret / password / proof 等）。
 2. **运行时**：main 的 `dispatch()` 对每个响应调用 `findCredentialLeaks()`，检查字段名，以及看起来像 `sk-…` / `nap_…` / JWT 的字符串值；发现就拦截，返回 `SERVER` 错误。
 3. **窗口**：`contextIsolation:true`、`sandbox:true`、`nodeIntegration:false`，禁止页面跳转和弹出新窗口，拒绝所有权限请求；CSP 设置 `connect-src 'none'`（renderer 不能直接联网）。preload 只放行白名单中的通道。
+
+## 8. M1 实现备注
+- 刷新：access token 在 `access_expires_at` 前 60 秒主动刷新，主动刷新间隔不少于 30 秒（rc.46 刷新后不一定延长过期时间）；收到 401 时刷新一次再重试；并发请求共用同一次刷新。刷新时带上 Cookie `new_api_refresh` 和 `X-Auth-Session: sid`，保存服务器轮换后的新 cookie。服务器拒绝刷新时清空会话；如果是网络错误，保留已存储的会话，稍后再试。
+- keys:create：服务器的新建接口不返回 key，所以新建前后各取一次列表，对比找出新 id，再取回完整 key 存入 KeyVault。update 时先合并当前对象，并且不回传打码后的 key。
+- chat：默认 `max_tokens=2048`；流式请求带 `stream_options.include_usage`；`finish_reason=length` 且正文为空时，返回 `warning:'TRUNCATED_EMPTY_CONTENT'`；`chat.stream` 不抛异常，错误和取消都通过 `type:'error'` 事件返回。
+- 错误映射：401/403 → UNAUTHORIZED；429 → RATE_LIMITED（带 retryAfter）；400/422 或 `success:false` → VALIDATION；消息中含 quota/额度/余额 → INSUFFICIENT_QUOTA；超时 → TIMEOUT；fetch 失败 → NETWORK。所有错误 message 都经过 `redact()` 脱敏。
+- Live 测试：运行 `npm run test:live`，需要设置 `PA_LIVE=1 PA_USER PA_PASS`；兑换码测试还需要 `PA_LIVE_REDEEM=1` 和 `NEWAPI_REDEEM_CODE_2`（兑换码会被消耗，最多运行一次）。

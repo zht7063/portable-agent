@@ -17,7 +17,7 @@ describe('MemoryTokenStore', () => {
   });
 });
 
-describe('DefaultSessionManager (M0 skeleton)', () => {
+describe('DefaultSessionManager basics', () => {
   it('transitions and emits redacted views', async () => {
     const store = new MemoryTokenStore();
     const m = new DefaultSessionManager({ store, serverUrl: 'http://x' });
@@ -45,10 +45,10 @@ describe('core helpers and stubs', () => {
     expect(DEFAULT_MAX_TOKENS).toBe(2048);
     expect(redact('Bearer sk-abcdefghijkl new_api_refresh=zzz;')).toBe('Bearer sk-*** new_api_refresh=***;');
   });
-  it('createCore wires defaults; module stubs reject with NOT_IMPLEMENTED', async () => {
+  it('createCore wires defaults; unauthenticated session call rejects', async () => {
     const core = createCore({ store: new MemoryTokenStore() });
     expect(core.http.baseUrl).toBe('http://38.246.253.190:3000');
     expect(core.http.insecure).toBe(true);
-    await expect(Promise.resolve().then(() => core.billing.balance())).rejects.toMatchObject({ error: { code: 'NOT_IMPLEMENTED' } });
+    await expect(core.billing.balance()).rejects.toMatchObject({ error: { code: 'UNAUTHORIZED' } });
   });
 });
