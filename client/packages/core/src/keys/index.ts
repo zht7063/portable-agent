@@ -84,11 +84,17 @@ export function createKeys(http: HttpClient, vault: KeyVault = new MemoryKeyVaul
       return summarize(created);
     },
     async update({ id, name, status, remainQuota, unlimitedQuota, expiredTime }) {
-      const cur = await find(id);
+      let cur = await find(id);
+      // new-api ignores `status` on a full PUT; status changes need ?status_only=true.
+      if (status !== undefined && status !== cur.status) {
+        const r = await http.api<RawToken>('PUT', '/api/token/?status_only=true', { body: { id, status } });
+        cur = r && typeof r === 'object' && 'id' in r ? r : { ...cur, status };
+      }
+      const fieldsChanged = [name, remainQuota, unlimitedQuota, expiredTime].some((v) => v !== undefined);
+      if (!fieldsChanged) return summarize(cur);
       const body = {
         ...cur,
         ...(name !== undefined ? { name } : {}),
-        ...(status !== undefined ? { status } : {}),
         ...(remainQuota !== undefined ? { remain_quota: remainQuota } : {}),
         ...(unlimitedQuota !== undefined ? { unlimited_quota: unlimitedQuota } : {}),
         ...(expiredTime !== undefined ? { expired_time: expiredTime } : {}),

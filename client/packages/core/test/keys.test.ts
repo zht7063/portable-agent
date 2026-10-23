@@ -39,16 +39,31 @@ describe('keys', () => {
     expect(JSON.stringify(k)).not.toContain(FULL);
   });
 
-  it('update merges current object, omits masked key', async () => {
+  it('update: status via status_only PUT, other fields via full PUT without masked key', async () => {
     const { core, calls } = await setup({
       'GET /api/token/': () => ok({ items: [raw(2, 'bot')] }),
+      'PUT /api/token/?status_only=true': (c) => ok({ ...raw(2, 'bot'), ...(c.body as object) }),
       'PUT /api/token/': (c) => ok({ ...raw(2, 'x'), ...(c.body as object), key: 'hNvY**********R5lk' }),
     });
     const k = await core.keys.update({ id: 2, name: 'renamed', status: 2 });
-    const body = calls.find((c) => c.method === 'PUT')!.body as Record<string, unknown>;
+    const puts = calls.filter((c) => c.method === 'PUT');
+    expect(puts.map((c) => c.path)).toEqual(['/api/token/?status_only=true', '/api/token/']);
+    expect(puts[0]!.body).toEqual({ id: 2, status: 2 });
+    const body = puts[1]!.body as Record<string, unknown>;
     expect(body).toMatchObject({ id: 2, name: 'renamed', status: 2, unlimited_quota: true });
     expect(body.key).toBeUndefined();
     expect(k).toMatchObject({ name: 'renamed', status: 2 });
+  });
+
+  it('update: status-only change sends only the status_only PUT; no-op status sends nothing', async () => {
+    const { core, calls } = await setup({
+      'GET /api/token/': () => ok({ items: [raw(2, 'bot')] }),
+      'PUT /api/token/?status_only=true': (c) => ok({ ...raw(2, 'bot'), ...(c.body as object) }),
+    });
+    expect(await core.keys.update({ id: 2, status: 2 })).toMatchObject({ status: 2 });
+    expect(calls.filter((c) => c.method === 'PUT').map((c) => c.path)).toEqual(['/api/token/?status_only=true']);
+    await core.keys.update({ id: 2, status: 1 }); // raw(2) is already status 1
+    expect(calls.filter((c) => c.method === 'PUT').length).toBe(1);
   });
 
   it('delete removes from server and vault', async () => {
